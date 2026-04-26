@@ -125,6 +125,74 @@ class TestGuardianClientInit(GuardianClientTestCase):
         with self.assertRaises(ValueError):
             GuardianClient()
 
+    @patch(
+        "src.ingestion.guardian_client.Settings.load_ingestion_config",
+        return_value={"profiles": {}},
+    )
+    def test_init_rejects_empty_profiles(self, _mock_load_config):
+        """__init__: rejects empty profiles mapping."""
+        with self.assertRaises(ValueError):
+            GuardianClient()
+
+    @patch(
+        "src.ingestion.guardian_client.Settings.load_ingestion_config",
+        return_value={"profiles": {"bad_profile": "invalid"}},
+    )
+    def test_init_rejects_non_mapping_profile(self, _mock_load_config):
+        """__init__: rejects profile values that are not mappings."""
+        with self.assertRaises(ValueError):
+            GuardianClient()
+
+    @patch(
+        "src.ingestion.guardian_client.Settings.load_ingestion_config",
+        return_value={
+            "profiles": {
+                "bad_profile": {
+                    "topic": "tech",
+                    "extra_filters": None,
+                    "use_next_fallback": True,
+                }
+            }
+        },
+    )
+    def test_init_allows_none_extra_filters(self, _mock_load_config):
+        """__init__: treats null extra_filters as an empty mapping."""
+        client = GuardianClient()
+        self.assertEqual(client._profiles["bad_profile"].extra_filters, {})
+
+    @patch(
+        "src.ingestion.guardian_client.Settings.load_ingestion_config",
+        return_value={
+            "profiles": {
+                "bad_profile": {
+                    "topic": "tech",
+                    "extra_filters": "nope",
+                    "use_next_fallback": True,
+                }
+            }
+        },
+    )
+    def test_init_rejects_non_mapping_extra_filters(self, _mock_load_config):
+        """__init__: rejects non-mapping extra_filters field."""
+        with self.assertRaises(ValueError):
+            GuardianClient()
+
+    @patch(
+        "src.ingestion.guardian_client.Settings.load_ingestion_config",
+        return_value={
+            "profiles": {
+                "bad_profile": {
+                    "topic": "tech",
+                    "use_next_fallback": "true",
+                }
+            }
+        },
+    )
+    def test_init_rejects_non_boolean_use_next_fallback(self, _mock_load_config):
+        """__init__: rejects non-boolean use_next_fallback field."""
+        with self.assertRaises(ValueError):
+            GuardianClient()
+
 
 class TestGuardianClientNormalizeDate(GuardianClientTestCase):
     """This class tests _normalize_date."""
@@ -463,6 +531,12 @@ class TestGuardianClientIterTopicArticles(GuardianClientTestCase):
         client = GuardianClient()
         with self.assertRaises(ValueError):
             list(client.iter_topic_articles(profile="missing_profile"))
+
+    def test_iter_topic_articles_profile_empty_error(self):
+        """iter_topic_articles: rejects empty profile names."""
+        client = GuardianClient()
+        with self.assertRaises(ValueError):
+            list(client.iter_topic_articles(profile=""))
 
 
 class TestGuardianClientGetArticlesForTopicDay(GuardianClientTestCase):

@@ -293,6 +293,17 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
             with self.assertRaises(ValueError):
                 getattr(Settings, "_load_ingestion_config")(config_path=config_path)
 
+    def test_load_ingestion_config_public_wrapper(self):
+        """load_ingestion_config: delegates to internal loader."""
+        with patch.object(
+            Settings,
+            "_load_ingestion_config",
+            return_value={"base_url": "https://wrapped.test"},
+        ) as mock_internal:
+            values = Settings.load_ingestion_config()
+        self.assertEqual(values["base_url"], "https://wrapped.test")
+        mock_internal.assert_called_once_with(config_path=None)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
