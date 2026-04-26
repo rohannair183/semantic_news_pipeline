@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
+import yaml
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -87,6 +89,11 @@ class Settings:
                         os.environ[key] = value
             break
 
+    @classmethod
+    def load_ingestion_config(cls, config_path: Optional[Path] = None) -> Dict[str, Any]:
+        """Public wrapper for loading Guardian ingestion config values."""
+        return cls._load_ingestion_config(config_path=config_path)
+
     @staticmethod
     def _load_ingestion_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
         """Load Guardian ingestion settings from YAML config."""
@@ -97,29 +104,9 @@ class Settings:
         if not config_path.is_file():
             return {}
 
-        parsed_values: Dict[str, Any] = {}
         with config_path.open("r", encoding="utf-8") as config_file:
-            for raw_line in config_file:
-                line = raw_line.strip()
-                if not line or line.startswith("#") or ":" not in line:
-                    continue
-                key, value = line.split(":", 1)
-                key = key.strip()
-                value = value.strip()
+            parsed_values = yaml.safe_load(config_file) or {}
 
-                if not key:
-                    continue
-
-                if value.startswith('"') and value.endswith('"'):
-                    parsed_values[key] = value[1:-1]
-                    continue
-                if value.startswith("'") and value.endswith("'"):
-                    parsed_values[key] = value[1:-1]
-                    continue
-                if value.isdigit():
-                    parsed_values[key] = int(value)
-                    continue
-
-                parsed_values[key] = value
-
+        if not isinstance(parsed_values, dict):
+            raise ValueError("Ingestion config YAML must parse to a mapping")
         return parsed_values

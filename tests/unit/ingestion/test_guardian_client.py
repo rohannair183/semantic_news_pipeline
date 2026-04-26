@@ -9,55 +9,129 @@ from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
 from src.application.settings import Settings
-from src.ingestion.guardian_client import GuardianClient
+from src.ingestion.guardian_client import GuardianClient, GuardianSearchRequest
 
 
-class TestGuardianClientInit(unittest.TestCase):
+class GuardianClientTestCase(unittest.TestCase):
+    """Base test case that mocks settings and YAML profile loading."""
+
+    def setUp(self):
+        super().setUp()
+        self.mock_settings = Settings(
+            api_key="test_api_key",
+            base_url="https://content.guardianapis.com",
+            default_page_size=10,
+            max_page_size=50,
+            timeout_seconds=15,
+        )
+        self.mock_profiles = {
+            "technology_profile": {
+                "topic": "technology",
+                "run_date": "2026-04-26",
+                "page_size": 2,
+                "query": "technology",
+                "order_by": "newest",
+                "use_next_fallback": True,
+            },
+            "science_profile": {
+                "topic": "science",
+                "run_date": "2026-04-26",
+                "page_size": 2,
+                "order_by": "newest",
+                "use_next_fallback": True,
+            },
+            "x_profile": {
+                "topic": "x",
+                "run_date": "2026-04-26",
+                "page_size": 2,
+                "order_by": "newest",
+                "use_next_fallback": True,
+            },
+            "no_fallback_profile": {
+                "topic": "x",
+                "run_date": "2026-04-26",
+                "page_size": 2,
+                "order_by": "newest",
+                "use_next_fallback": False,
+            },
+        }
+
+        self.load_settings_patcher = patch(
+            "src.ingestion.guardian_client.Settings.load_settings",
+            return_value=self.mock_settings,
+        )
+        self.load_config_patcher = patch(
+            "src.ingestion.guardian_client.Settings.load_ingestion_config",
+            return_value={"profiles": self.mock_profiles},
+        )
+
+        self.mock_load_settings = self.load_settings_patcher.start()
+        self.mock_load_config = self.load_config_patcher.start()
+
+    def tearDown(self):
+        self.load_config_patcher.stop()
+        self.load_settings_patcher.stop()
+        super().tearDown()
+
+
+class TestGuardianClientInit(GuardianClientTestCase):
     """This class tests __init__."""
 
-    def test_init_with_secret(self):
-        """__init__: initialization succeeds when the API key secret is available."""
-        client = GuardianClient(api_key="my_secret")
+    def test_init_with_secret_from_settings(self):
+        """__init__: initialization succeeds when Settings provides an API key."""
+        client = GuardianClient()
         self.assertIsNotNone(client)
-        self.assertEqual(client.api_key, "my_secret")
+        self.assertEqual(client.api_key, "test_api_key")
+        self.mock_load_settings.assert_called_once_with()
+        self.mock_load_config.assert_called_once_with()
 
-    @patch("src.application.settings.Settings._load_env_file")
-    @patch("src.application.settings.os.getenv", return_value=None)
-    def test_init_without_secret(self, _mock_getenv, _mock_load_env):
-        """__init__: initialization fails when the API key secret is missing."""
+    @patch(
+        "src.ingestion.guardian_client.Settings.load_settings",
+        side_effect=ValueError("Missing required setting: GUARDIAN_API_KEY"),
+    )
+    def test_init_without_secret(self, _mock_load_settings):
+        """__init__: initialization fails when settings loading fails."""
         with self.assertRaises(ValueError):
             GuardianClient()
 
-    def test_init_uses_settings_defaults_and_overrides(self):
-        """__init__: settings defaults are applied and explicit overrides win."""
-        settings = Settings(
+    @patch("src.ingestion.guardian_client.Settings.load_settings")
+    def test_init_uses_settings_values(self, mock_load_settings):
+        """__init__: values are taken from settings resolved at construction time."""
+        mock_load_settings.return_value = Settings(
             api_key="k",
             base_url="https://cfg.test",
             default_page_size=11,
             max_page_size=22,
             timeout_seconds=9,
         )
-        client = GuardianClient(
-            settings=settings, base_url="https://override.test", timeout_seconds=5
-        )
+        client = GuardianClient()
         self.assertEqual(client.api_key, "k")
-        self.assertEqual(client.base_url, "https://override.test")
+        self.assertEqual(client.base_url, "https://cfg.test")
         self.assertEqual(client.default_page_size, 11)
         self.assertEqual(client.max_page_size, 22)
-        self.assertEqual(client.timeout_seconds, 5)
+        self.assertEqual(client.timeout_seconds, 9)
 
     def test_init_rejects_non_positive_request_rate(self):
         """__init__: request rate must be strictly positive."""
         with self.assertRaises(ValueError):
-            GuardianClient(api_key="x", requests_per_second=0)
+            GuardianClient(requests_per_second=0)
+
+    @patch(
+        "src.ingestion.guardian_client.Settings.load_ingestion_config",
+        return_value={"profiles": {"bad_profile": {"page_size": 3}}},
+    )
+    def test_init_rejects_profile_missing_topic(self, _mock_load_config):
+        """__init__: rejects malformed profile config missing required topic."""
+        with self.assertRaises(ValueError):
+            GuardianClient()
 
 
-class TestGuardianClientNormalizeDate(unittest.TestCase):
+class TestGuardianClientNormalizeDate(GuardianClientTestCase):
     """This class tests _normalize_date."""
 
     def test_normalize_date_variants_and_errors(self):
         """_normalize_date: supports None/date/datetime/iso string and rejects bad values."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         normalize_date = getattr(client, "_normalize_date")
         with patch.object(client, "_default_date", return_value="2026-04-26"):
             self.assertEqual(normalize_date(None), "2026-04-26")
@@ -71,12 +145,12 @@ class TestGuardianClientNormalizeDate(unittest.TestCase):
             normalize_date(123)
 
 
-class TestGuardianClientValidatePageSize(unittest.TestCase):
+class TestGuardianClientValidatePageSize(GuardianClientTestCase):
     """This class tests _validate_page_size."""
 
     def test_validate_page_size_errors(self):
         """_validate_page_size: enforces configured min/max bounds."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         validate_page_size = getattr(client, "_validate_page_size")
         self.assertEqual(validate_page_size(1), 1)
         with self.assertRaises(ValueError):
@@ -85,12 +159,12 @@ class TestGuardianClientValidatePageSize(unittest.TestCase):
             validate_page_size(client.max_page_size + 1)
 
 
-class TestGuardianClientThrottle(unittest.TestCase):
+class TestGuardianClientThrottle(GuardianClientTestCase):
     """This class tests _throttle."""
 
     def test_throttle_sleep_and_no_sleep_paths(self):
         """_throttle: sleeps when needed and skips sleep when interval already elapsed."""
-        client = GuardianClient(api_key="x", requests_per_second=2.0)
+        client = GuardianClient(requests_per_second=2.0)
         with patch("src.ingestion.guardian_client.time.monotonic", side_effect=[1.0, 1.01]), patch(
             "src.ingestion.guardian_client.time.sleep"
         ) as mock_sleep:
@@ -106,27 +180,26 @@ class TestGuardianClientThrottle(unittest.TestCase):
             mock_sleep.assert_not_called()
 
 
-class TestGuardianClientRequestJson(unittest.TestCase):
+class TestGuardianClientRequestJson(GuardianClientTestCase):
     """This class tests _request_json."""
 
     def test_request_json_success_and_error_paths(self):
         """_request_json: returns JSON on success and wraps HTTP/URL errors."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
 
         class FakeResponse:
             """A fake response object for testing urlopen context management and reading."""
+
             def __enter__(self):
-                """
-                Fake response enter method.
-                """
+                """Support context management protocol."""
                 return self
 
             def __exit__(self, exc_type, exc_val, exc_tb):
-                """Fake response exit method."""
+                """Support context management protocol."""
                 return False
 
             def read(self):
-                """Fake response read method."""
+                """Return bytes representing a JSON payload."""
                 return b'{"response": {"status": "ok"}}'
 
         with patch.object(client, "_throttle"), patch(
@@ -135,8 +208,13 @@ class TestGuardianClientRequestJson(unittest.TestCase):
             payload = getattr(client, "_request_json")("/search", {"a": 1})
         self.assertEqual(payload["response"]["status"], "ok")
 
-        http_err = HTTPError(url="u", code=400, msg="bad",
-                             hdrs=Message(), fp=io.BytesIO(b"detail"))
+        http_err = HTTPError(
+            url="u",
+            code=400,
+            msg="bad",
+            hdrs=Message(),
+            fp=io.BytesIO(b"detail"),
+        )
         with patch.object(client, "_throttle"), patch(
             "src.ingestion.guardian_client.urlopen", side_effect=http_err
         ):
@@ -150,62 +228,70 @@ class TestGuardianClientRequestJson(unittest.TestCase):
                 getattr(client, "_request_json")("/search")
 
 
-class TestGuardianClientExtractResponseOrRaise(unittest.TestCase):
+class TestGuardianClientExtractResponseOrRaise(GuardianClientTestCase):
     """This class tests _extract_response_or_raise."""
 
     def test_extract_response_validation(self):
         """_extract_response_or_raise: validates payload shape and API status."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         with self.assertRaises(ValueError):
             getattr(client, "_extract_response_or_raise")({})
         with self.assertRaises(RuntimeError):
             getattr(client, "_extract_response_or_raise")(
                 {"response": {"status": "error"}})
         self.assertEqual(
-            getattr(client, "_extract_response_or_raise")
-            ({"response": {"status": "ok", "total": 1}})["total"],
+            getattr(client, "_extract_response_or_raise")(
+                {"response": {"status": "ok", "total": 1}})[
+                "total"
+            ],
             1,
         )
 
 
-class TestGuardianClientBuildSearchParams(unittest.TestCase):
+class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
     """This class tests _build_search_params."""
 
     def test_build_search_params_validation_and_query(self):
         """_build_search_params: rejects missing topic and supports query/filters."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         build_search_params = getattr(client, "_build_search_params")
+        request = GuardianSearchRequest(
+            topic="",
+            run_date="2026-04-01",
+            page_size=10,
+        )
         with self.assertRaises(ValueError):
-            build_search_params(
-                topic="", run_date="2026-04-01", page=1, page_size=10)
-        params = build_search_params(
+            build_search_params(request, page=1)
+
+        request = GuardianSearchRequest(
             topic="technology",
             run_date="2026-04-01",
-            page=2,
             page_size=10,
             query="chips",
             extra_filters={"lang": "en"},
         )
+        params = build_search_params(request, page=2)
         self.assertEqual(params["q"], "chips")
         self.assertEqual(params["lang"], "en")
         self.assertEqual(params["page"], 2)
 
 
-class TestGuardianClientSearchNextPage(unittest.TestCase):
+class TestGuardianClientSearchNextPage(GuardianClientTestCase):
     """This class tests _search_next_page."""
 
     def test_search_next_page_requires_last_id(self):
         """_search_next_page: rejects empty continuation id."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         with self.assertRaises(ValueError):
             getattr(client, "_search_next_page")("", {})
 
     def test_search_next_page_success_path(self):
         """_search_next_page: builds the continuation path and parses the response."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         with patch.object(
-            client, "_request_json",
-            return_value={"response": {"status": "ok", "results": []}}
+            client,
+            "_request_json",
+            return_value={"response": {"status": "ok", "results": []}},
         ):
             response = getattr(client, "_search_next_page")(
                 "technology/1", {"order-by": "newest"})
@@ -213,32 +299,33 @@ class TestGuardianClientSearchNextPage(unittest.TestCase):
         self.assertEqual(response["status"], "ok")
 
 
-class TestGuardianClientSearchPage(unittest.TestCase):
+class TestGuardianClientSearchPage(GuardianClientTestCase):
     """This class tests _search_page."""
 
     def test_search_page_success_path(self):
         """_search_page: wrapper calls the request parser pipeline correctly."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
+        request = GuardianSearchRequest(
+            topic="technology",
+            run_date="2026-04-01",
+            page_size=10,
+        )
         with patch.object(
-            client, "_request_json",
-            return_value={"response": {"status": "ok", "results": []}}
+            client,
+            "_request_json",
+            return_value={"response": {"status": "ok", "results": []}},
         ):
-            response = getattr(client, "_search_page")(
-                topic="technology",
-                run_date="2026-04-01",
-                page=1,
-                page_size=10,
-            )
+            response = getattr(client, "_search_page")(request=request, page=1)
 
         self.assertEqual(response["status"], "ok")
 
 
-class TestGuardianClientGetArticlesListByTopic(unittest.TestCase):
+class TestGuardianClientGetArticlesListByTopic(GuardianClientTestCase):
     """This class tests get_articles_list_by_topic."""
 
     def test_get_articles_list_by_topic_and_defaults(self):
         """get_articles_list_by_topic: parses params and returns normalized response."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         with patch.object(
             client,
             "_search_page",
@@ -250,12 +337,12 @@ class TestGuardianClientGetArticlesListByTopic(unittest.TestCase):
         self.assertEqual(result["page"], 1)
 
 
-class TestGuardianClientIterTopicArticles(unittest.TestCase):
+class TestGuardianClientIterTopicArticles(GuardianClientTestCase):
     """This class tests iter_topic_articles."""
 
     def test_iter_topic_articles_respects_limit_across_pages(self):
         """iter_topic_articles: paginates and respects requested item limits."""
-        client = GuardianClient(api_key="my_secret")
+        client = GuardianClient()
         with patch.object(client, "_search_page") as mock_search_page:
             mock_search_page.side_effect = [
                 {
@@ -272,22 +359,15 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
                 },
             ]
 
-            items = list(
-                client.iter_topic_articles(
-                    topic="technology",
-                    run_date="2026-04-26",
-                    limit=3,
-                    page_size=2,
-                    use_next_fallback=False,
-                )
-            )
+            items = list(client.iter_topic_articles(
+                profile="technology_profile", limit=3))
 
         self.assertEqual([item["id"] for item in items], [
                          "technology/1", "technology/2", "technology/3"])
 
     def test_iter_topic_articles_uses_next_fallback(self):
         """iter_topic_articles: continues via /next when normal pagination is exhausted."""
-        client = GuardianClient(api_key="my_secret")
+        client = GuardianClient()
         with patch.object(client, "_search_page") as mock_search_page, patch.object(
             client, "_search_next_page"
         ) as mock_next:
@@ -302,15 +382,8 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
                 "results": [{"id": "science/3"}],
             }
 
-            items = list(
-                client.iter_topic_articles(
-                    topic="science",
-                    run_date="2026-04-26",
-                    limit=3,
-                    page_size=2,
-                    use_next_fallback=True,
-                )
-            )
+            items = list(client.iter_topic_articles(
+                profile="science_profile", limit=3))
 
         self.assertEqual([item["id"] for item in items], [
                          "science/1", "science/2", "science/3"])
@@ -318,18 +391,19 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
 
     def test_iter_topic_articles_limit_error_and_empty_path(self):
         """iter_topic_articles: rejects invalid limits and exits cleanly on empty responses."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         with self.assertRaises(ValueError):
-            list(client.iter_topic_articles(topic="x", limit=0))
+            list(client.iter_topic_articles(profile="x_profile", limit=0))
         with patch.object(client, "_search_page", return_value={"results": []}):
-            self.assertEqual(list(client.iter_topic_articles(
-                topic="x", use_next_fallback=False)), [])
+            self.assertEqual(
+                list(client.iter_topic_articles(profile="x_profile")), [])
 
     def test_iter_topic_articles_next_fallback_early_exits(self):
-        """iter_topic_articles: next-fallback guard clauses return without extra calls when
-        conditions fail.
         """
-        client = GuardianClient(api_key="x")
+        iter_topic_articles: next-fallback guard clauses return without extra calls when
+        needed.
+        """
+        client = GuardianClient()
 
         with patch.object(
             client,
@@ -338,7 +412,7 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
                           "pages": 1, "results": [{"id": "a"}]},
         ), patch.object(client, "_search_next_page") as mock_next:
             items = list(client.iter_topic_articles(
-                topic="x", use_next_fallback=False))
+                profile="no_fallback_profile"))
             self.assertEqual(len(items), 1)
             mock_next.assert_not_called()
 
@@ -348,8 +422,7 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
             return_value={"currentPage": 1,
                           "pages": 1, "results": [{"id": "a"}]},
         ), patch.object(client, "_search_next_page") as mock_next:
-            list(client.iter_topic_articles(
-                topic="x", limit=1, use_next_fallback=True))
+            list(client.iter_topic_articles(profile="x_profile", limit=1))
             mock_next.assert_not_called()
 
         with patch.object(
@@ -358,23 +431,12 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
             return_value={"currentPage": 1,
                           "pages": 1, "results": [{"id": "a"}]},
         ), patch.object(client, "_search_next_page") as mock_next:
-            list(client.iter_topic_articles(
-                topic="x", limit=2, use_next_fallback=True))
-            mock_next.assert_not_called()
-
-        with patch.object(
-            client,
-            "_search_page",
-            return_value={"currentPage": 1,
-                          "pages": 1, "results": [{"id": "a"}]},
-        ), patch.object(client, "_search_next_page") as mock_next:
-            list(client.iter_topic_articles(
-                topic="x", page_size=2, use_next_fallback=True))
+            list(client.iter_topic_articles(profile="x_profile", limit=2))
             mock_next.assert_not_called()
 
     def test_iter_topic_articles_next_fallback_result_break_paths(self):
         """iter_topic_articles: next-fallback loop exits on empty and short result batches."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
 
         with patch.object(
             client,
@@ -383,7 +445,7 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
                           "results": [{"id": "a"}, {"id": "b"}]},
         ), patch.object(client, "_search_next_page", return_value={"results": []}):
             items = list(client.iter_topic_articles(
-                topic="x", page_size=2, limit=5, use_next_fallback=True))
+                profile="x_profile", limit=5))
             self.assertEqual(len(items), 2)
 
         with patch.object(
@@ -392,33 +454,38 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
             return_value={"currentPage": 1, "pages": 1,
                           "results": [{"id": "a"}, {"id": "b"}]},
         ), patch.object(client, "_search_next_page", return_value={"results": [{"id": "c"}]}):
-            items = list(
-                client.iter_topic_articles(
-                    topic="x", page_size=2, limit=5, use_next_fallback=True
-                ))
+            items = list(client.iter_topic_articles(
+                profile="x_profile", limit=5))
             self.assertEqual(len(items), 3)
 
+    def test_iter_topic_articles_profile_not_found(self):
+        """iter_topic_articles: raises when profile is not configured."""
+        client = GuardianClient()
+        with self.assertRaises(ValueError):
+            list(client.iter_topic_articles(profile="missing_profile"))
 
-class TestGuardianClientGetArticlesForTopicDay(unittest.TestCase):
+
+class TestGuardianClientGetArticlesForTopicDay(GuardianClientTestCase):
     """This class tests get_articles_for_topic_day."""
 
-    def test_get_articles_for_topic_day_defaults_and_errors(self):
-        """get_articles_for_topic_day: returns the default page size when none is provided."""
-        client = GuardianClient(api_key="x")
+    def test_get_articles_for_topic_day_uses_profile_config(self):
+        """get_articles_for_topic_day: summary fields come from selected profile settings."""
+        client = GuardianClient()
         with patch.object(client, "iter_topic_articles", return_value=iter([{"id": "a"}])):
-            payload = client.get_articles_for_topic_day(
-                topic="x", page_size=None)
+            payload = client.get_articles_for_topic_day(profile="x_profile")
             self.assertEqual(payload["fetched_count"], 1)
+            self.assertEqual(payload["pagination_summary"]["page_size"], 2)
             self.assertEqual(payload["pagination_summary"]
-                             ["page_size"], client.default_page_size)
+                             ["used_next_fallback"], True)
+            self.assertEqual(payload["profile"], "x_profile")
 
 
-class TestGuardianClientGetArticleById(unittest.TestCase):
+class TestGuardianClientGetArticleById(GuardianClientTestCase):
     """This class tests get_article_by_id."""
 
     def test_get_article_by_id_returns_content(self):
         """get_article_by_id: returns content payload from response."""
-        client = GuardianClient(api_key="my_secret")
+        client = GuardianClient()
         with patch.object(client, "_request_json") as mock_request:
             mock_request.return_value = {
                 "response": {
@@ -433,7 +500,7 @@ class TestGuardianClientGetArticleById(unittest.TestCase):
 
     def test_get_article_by_id_errors(self):
         """get_article_by_id: rejects empty ids and missing content payloads."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
 
         with self.assertRaises(ValueError):
             client.get_article_by_id("")
@@ -454,12 +521,12 @@ class TestGuardianClientGetArticleById(unittest.TestCase):
         self.assertEqual(content["id"], "x")
 
 
-class TestGuardianClientGetArticlesByIds(unittest.TestCase):
+class TestGuardianClientGetArticlesByIds(GuardianClientTestCase):
     """This class tests get_articles_by_ids."""
 
     def test_get_articles_by_ids_collects_failures(self):
         """get_articles_by_ids: captures per-id failures without aborting the whole batch."""
-        client = GuardianClient(api_key="my_secret")
+        client = GuardianClient()
         with patch.object(client, "get_article_by_id") as mock_get_by_id:
             mock_get_by_id.side_effect = [
                 {"id": "world/1"},
@@ -475,7 +542,7 @@ class TestGuardianClientGetArticlesByIds(unittest.TestCase):
 
     def test_get_articles_by_ids_all_success(self):
         """get_articles_by_ids: success path returns expected counters."""
-        client = GuardianClient(api_key="x")
+        client = GuardianClient()
         with patch.object(client, "get_article_by_id", return_value={"id": "ok"}):
             result = client.get_articles_by_ids(["a"])
         self.assertEqual(result["fetched_count"], 1)

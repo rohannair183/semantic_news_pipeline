@@ -78,17 +78,56 @@ class TestSettingsFromEnv(unittest.TestCase):
             root = Path(tmp_dir)
 
             bad_default = root / "bad_default.yaml"
-            bad_default.write_text("default_page_size: 0\n", encoding="utf-8")
+            bad_default.write_text(
+                "\n".join(
+                    [
+                        'base_url: "https://content.guardianapis.com"',
+                        "default_page_size: 0",
+                        "max_page_size: 50",
+                        "timeout_seconds: 30",
+                    ]
+                ),
+                encoding="utf-8",
+            )
 
             bad_max = root / "bad_max.yaml"
-            bad_max.write_text("max_page_size: 0\n", encoding="utf-8")
+            bad_max.write_text(
+                "\n".join(
+                    [
+                        'base_url: "https://content.guardianapis.com"',
+                        "default_page_size: 50",
+                        "max_page_size: 0",
+                        "timeout_seconds: 30",
+                    ]
+                ),
+                encoding="utf-8",
+            )
 
             bad_order = root / "bad_order.yaml"
             bad_order.write_text(
-                "default_page_size: 51\nmax_page_size: 50\n", encoding="utf-8")
+                "\n".join(
+                    [
+                        'base_url: "https://content.guardianapis.com"',
+                        "default_page_size: 51",
+                        "max_page_size: 50",
+                        "timeout_seconds: 30",
+                    ]
+                ),
+                encoding="utf-8",
+            )
 
             bad_timeout = root / "bad_timeout.yaml"
-            bad_timeout.write_text("timeout_seconds: 0\n", encoding="utf-8")
+            bad_timeout.write_text(
+                "\n".join(
+                    [
+                        'base_url: "https://content.guardianapis.com"',
+                        "default_page_size: 50",
+                        "max_page_size: 50",
+                        "timeout_seconds: 0",
+                    ]
+                ),
+                encoding="utf-8",
+            )
 
             self.assert_raises_value_error(
                 lambda: Settings.load_settings(
@@ -202,21 +241,26 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         self.assertEqual(values["default_page_size"], 50)
         self.assertEqual(values["max_page_size"], 50)
         self.assertEqual(values["timeout_seconds"], 30)
+        self.assertIn("profiles", values)
 
-    def test_load_ingestion_config_parses_supported_values(self):
-        """_load_ingestion_config: parses quoted strings, ints, and plain strings."""
+    def test_load_ingestion_config_parses_nested_yaml_values(self):
+        """_load_ingestion_config: parses nested profile maps from YAML."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             config_path = Path(tmp_dir) / "guardian_client.yaml"
             config_path.write_text(
                 "\n".join(
                     [
-                        "# comment",
-                        "invalid",
-                        "base_url: 'https://one.test'",
-                        "label: plain",
+                        'base_url: "https://one.test"',
                         "default_page_size: 12",
-                        "empty_key: value",
-                        ": ignore",
+                        "max_page_size: 20",
+                        "timeout_seconds: 10",
+                        "profiles:",
+                        "  daily_tech:",
+                        '    topic: "technology"',
+                        "    page_size: 10",
+                        "    use_next_fallback: true",
+                        "    extra_filters:",
+                        '      section: "technology"',
                     ]
                 ),
                 encoding="utf-8",
@@ -227,8 +271,11 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
 
         self.assertEqual(values["base_url"], "https://one.test")
         self.assertEqual(values["default_page_size"], 12)
-        self.assertEqual(values["label"], "plain")
-        self.assertEqual(values["empty_key"], "value")
+        self.assertEqual(values["profiles"]["daily_tech"]["topic"], "technology")
+        self.assertEqual(values["profiles"]["daily_tech"]["page_size"], 10)
+        self.assertEqual(
+            values["profiles"]["daily_tech"]["extra_filters"]["section"], "technology"
+        )
 
     def test_load_ingestion_config_returns_empty_for_missing_file(self):
         """_load_ingestion_config: returns empty mapping for absent file."""
@@ -237,6 +284,14 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
             values = getattr(Settings, "_load_ingestion_config")(
                 config_path=missing)
         self.assertEqual(values, {})
+
+    def test_load_ingestion_config_rejects_non_mapping_yaml(self):
+        """_load_ingestion_config: raises when YAML root is not a mapping."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config_path = Path(tmp_dir) / "guardian_client.yaml"
+            config_path.write_text("- one\n- two\n", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                getattr(Settings, "_load_ingestion_config")(config_path=config_path)
 
 
 if __name__ == "__main__":  # pragma: no cover

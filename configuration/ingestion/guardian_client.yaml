@@ -3,3 +3,12 @@ base_url: "https://content.guardianapis.com"
 default_page_size: 50
 max_page_size: 50
 timeout_seconds: 30
+profiles:
+  technology_daily:
+    topic: "technology"
+    order_by: "newest"
+    use_next_fallback: true
+  science_daily:
+    topic: "science"
+    order_by: "newest"
+    use_next_fallback: true

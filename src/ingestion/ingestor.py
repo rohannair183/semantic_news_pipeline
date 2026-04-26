@@ -3,7 +3,7 @@ Ingestor for handling data ingestion from the Open Guardian API. This module def
 `GuardianIngestor` class, which is responsible for fetching data from the API, and
 storing it in a structured format for further use in the application.
 """
-
+# pylint: disable=too-few-public-methods
 class Ingestor:
     """
     Class representing the ingestor for fetching data from the Open Guardian API. This class
