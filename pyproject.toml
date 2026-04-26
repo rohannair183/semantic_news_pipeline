@@ -1,3 +1,13 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "semantic-news-pipeline"
+version = "0.1.0"
+description = "Semantic news pipeline"
+requires-python = ">=3.11"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
@@ -18,6 +28,16 @@ show_missing = true
 
 [project.optional-dependencies]
 dev = [
+  "pytest",
+  "pytest-cov",
+  "pylint>=3.3",
+  "astroid>=3.3",
+  "PyYAML>=6.0",
+  "pyright",
+  "ruff",
+]
+
+ci = [
   "pytest",
   "pytest-cov",
   "pylint>=3.3",
