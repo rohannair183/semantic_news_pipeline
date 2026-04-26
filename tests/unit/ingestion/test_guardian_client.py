@@ -37,7 +37,9 @@ class TestGuardianClientInit(unittest.TestCase):
             max_page_size=22,
             timeout_seconds=9,
         )
-        client = GuardianClient(settings=settings, base_url="https://override.test", timeout_seconds=5)
+        client = GuardianClient(
+            settings=settings, base_url="https://override.test", timeout_seconds=5
+        )
         self.assertEqual(client.api_key, "k")
         self.assertEqual(client.base_url, "https://override.test")
         self.assertEqual(client.default_page_size, 11)
@@ -60,8 +62,8 @@ class TestGuardianClientNormalizeDate(unittest.TestCase):
         with patch.object(client, "_default_date", return_value="2026-04-26"):
             self.assertEqual(normalize_date(None), "2026-04-26")
         self.assertEqual(normalize_date(date(2026, 4, 1)), "2026-04-01")
-        dt = datetime(2026, 4, 1, 5, 0, tzinfo=timezone.utc)
-        self.assertEqual(normalize_date(dt), "2026-04-01")
+        date_time = datetime(2026, 4, 1, 5, 0, tzinfo=timezone.utc)
+        self.assertEqual(normalize_date(date_time), "2026-04-01")
         self.assertEqual(normalize_date("2026-04-02"), "2026-04-02")
         with self.assertRaises(ValueError):
             normalize_date("not-a-date")
@@ -112,13 +114,19 @@ class TestGuardianClientRequestJson(unittest.TestCase):
         client = GuardianClient(api_key="x")
 
         class FakeResponse:
+            """A fake response object for testing urlopen context management and reading."""
             def __enter__(self):
+                """
+                Fake response enter method.
+                """
                 return self
 
             def __exit__(self, exc_type, exc_val, exc_tb):
+                """Fake response exit method."""
                 return False
 
             def read(self):
+                """Fake response read method."""
                 return b'{"response": {"status": "ok"}}'
 
         with patch.object(client, "_throttle"), patch(
@@ -127,7 +135,8 @@ class TestGuardianClientRequestJson(unittest.TestCase):
             payload = getattr(client, "_request_json")("/search", {"a": 1})
         self.assertEqual(payload["response"]["status"], "ok")
 
-        http_err = HTTPError(url="u", code=400, msg="bad", hdrs=Message(), fp=io.BytesIO(b"detail"))
+        http_err = HTTPError(url="u", code=400, msg="bad",
+                             hdrs=Message(), fp=io.BytesIO(b"detail"))
         with patch.object(client, "_throttle"), patch(
             "src.ingestion.guardian_client.urlopen", side_effect=http_err
         ):
@@ -150,9 +159,11 @@ class TestGuardianClientExtractResponseOrRaise(unittest.TestCase):
         with self.assertRaises(ValueError):
             getattr(client, "_extract_response_or_raise")({})
         with self.assertRaises(RuntimeError):
-            getattr(client, "_extract_response_or_raise")({"response": {"status": "error"}})
+            getattr(client, "_extract_response_or_raise")(
+                {"response": {"status": "error"}})
         self.assertEqual(
-            getattr(client, "_extract_response_or_raise")({"response": {"status": "ok", "total": 1}})["total"],
+            getattr(client, "_extract_response_or_raise")
+            ({"response": {"status": "ok", "total": 1}})["total"],
             1,
         )
 
@@ -165,7 +176,8 @@ class TestGuardianClientBuildSearchParams(unittest.TestCase):
         client = GuardianClient(api_key="x")
         build_search_params = getattr(client, "_build_search_params")
         with self.assertRaises(ValueError):
-            build_search_params(topic="", run_date="2026-04-01", page=1, page_size=10)
+            build_search_params(
+                topic="", run_date="2026-04-01", page=1, page_size=10)
         params = build_search_params(
             topic="technology",
             run_date="2026-04-01",
@@ -191,8 +203,12 @@ class TestGuardianClientSearchNextPage(unittest.TestCase):
     def test_search_next_page_success_path(self):
         """_search_next_page: builds the continuation path and parses the response."""
         client = GuardianClient(api_key="x")
-        with patch.object(client, "_request_json", return_value={"response": {"status": "ok", "results": []}}):
-            response = getattr(client, "_search_next_page")("technology/1", {"order-by": "newest"})
+        with patch.object(
+            client, "_request_json",
+            return_value={"response": {"status": "ok", "results": []}}
+        ):
+            response = getattr(client, "_search_next_page")(
+                "technology/1", {"order-by": "newest"})
 
         self.assertEqual(response["status"], "ok")
 
@@ -203,7 +219,10 @@ class TestGuardianClientSearchPage(unittest.TestCase):
     def test_search_page_success_path(self):
         """_search_page: wrapper calls the request parser pipeline correctly."""
         client = GuardianClient(api_key="x")
-        with patch.object(client, "_request_json", return_value={"response": {"status": "ok", "results": []}}):
+        with patch.object(
+            client, "_request_json",
+            return_value={"response": {"status": "ok", "results": []}}
+        ):
             response = getattr(client, "_search_page")(
                 topic="technology",
                 run_date="2026-04-01",
@@ -223,7 +242,8 @@ class TestGuardianClientGetArticlesListByTopic(unittest.TestCase):
         with patch.object(
             client,
             "_search_page",
-            return_value={"total": 3, "currentPage": 1, "pages": 2, "results": []},
+            return_value={"total": 3, "currentPage": 1,
+                          "pages": 2, "results": []},
         ):
             result = client.get_articles_list_by_topic("tech")
         self.assertEqual(result["total_available"], 3)
@@ -262,7 +282,8 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
                 )
             )
 
-        self.assertEqual([item["id"] for item in items], ["technology/1", "technology/2", "technology/3"])
+        self.assertEqual([item["id"] for item in items], [
+                         "technology/1", "technology/2", "technology/3"])
 
     def test_iter_topic_articles_uses_next_fallback(self):
         """iter_topic_articles: continues via /next when normal pagination is exhausted."""
@@ -291,7 +312,8 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
                 )
             )
 
-        self.assertEqual([item["id"] for item in items], ["science/1", "science/2", "science/3"])
+        self.assertEqual([item["id"] for item in items], [
+                         "science/1", "science/2", "science/3"])
         self.assertEqual(mock_next.call_count, 1)
 
     def test_iter_topic_articles_limit_error_and_empty_path(self):
@@ -300,43 +322,54 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
         with self.assertRaises(ValueError):
             list(client.iter_topic_articles(topic="x", limit=0))
         with patch.object(client, "_search_page", return_value={"results": []}):
-            self.assertEqual(list(client.iter_topic_articles(topic="x", use_next_fallback=False)), [])
+            self.assertEqual(list(client.iter_topic_articles(
+                topic="x", use_next_fallback=False)), [])
 
     def test_iter_topic_articles_next_fallback_early_exits(self):
-        """iter_topic_articles: next-fallback guard clauses return without extra calls when conditions fail."""
+        """iter_topic_articles: next-fallback guard clauses return without extra calls when
+        conditions fail.
+        """
         client = GuardianClient(api_key="x")
 
         with patch.object(
             client,
             "_search_page",
-            return_value={"currentPage": 1, "pages": 1, "results": [{"id": "a"}]},
+            return_value={"currentPage": 1,
+                          "pages": 1, "results": [{"id": "a"}]},
         ), patch.object(client, "_search_next_page") as mock_next:
-            items = list(client.iter_topic_articles(topic="x", use_next_fallback=False))
+            items = list(client.iter_topic_articles(
+                topic="x", use_next_fallback=False))
             self.assertEqual(len(items), 1)
             mock_next.assert_not_called()
 
         with patch.object(
             client,
             "_search_page",
-            return_value={"currentPage": 1, "pages": 1, "results": [{"id": "a"}]},
+            return_value={"currentPage": 1,
+                          "pages": 1, "results": [{"id": "a"}]},
         ), patch.object(client, "_search_next_page") as mock_next:
-            list(client.iter_topic_articles(topic="x", limit=1, use_next_fallback=True))
+            list(client.iter_topic_articles(
+                topic="x", limit=1, use_next_fallback=True))
             mock_next.assert_not_called()
 
         with patch.object(
             client,
             "_search_page",
-            return_value={"currentPage": 1, "pages": 1, "results": [{"id": "a"}]},
+            return_value={"currentPage": 1,
+                          "pages": 1, "results": [{"id": "a"}]},
         ), patch.object(client, "_search_next_page") as mock_next:
-            list(client.iter_topic_articles(topic="x", limit=2, use_next_fallback=True))
+            list(client.iter_topic_articles(
+                topic="x", limit=2, use_next_fallback=True))
             mock_next.assert_not_called()
 
         with patch.object(
             client,
             "_search_page",
-            return_value={"currentPage": 1, "pages": 1, "results": [{"id": "a"}]},
+            return_value={"currentPage": 1,
+                          "pages": 1, "results": [{"id": "a"}]},
         ), patch.object(client, "_search_next_page") as mock_next:
-            list(client.iter_topic_articles(topic="x", page_size=2, use_next_fallback=True))
+            list(client.iter_topic_articles(
+                topic="x", page_size=2, use_next_fallback=True))
             mock_next.assert_not_called()
 
     def test_iter_topic_articles_next_fallback_result_break_paths(self):
@@ -346,17 +379,23 @@ class TestGuardianClientIterTopicArticles(unittest.TestCase):
         with patch.object(
             client,
             "_search_page",
-            return_value={"currentPage": 1, "pages": 1, "results": [{"id": "a"}, {"id": "b"}]},
+            return_value={"currentPage": 1, "pages": 1,
+                          "results": [{"id": "a"}, {"id": "b"}]},
         ), patch.object(client, "_search_next_page", return_value={"results": []}):
-            items = list(client.iter_topic_articles(topic="x", page_size=2, limit=5, use_next_fallback=True))
+            items = list(client.iter_topic_articles(
+                topic="x", page_size=2, limit=5, use_next_fallback=True))
             self.assertEqual(len(items), 2)
 
         with patch.object(
             client,
             "_search_page",
-            return_value={"currentPage": 1, "pages": 1, "results": [{"id": "a"}, {"id": "b"}]},
+            return_value={"currentPage": 1, "pages": 1,
+                          "results": [{"id": "a"}, {"id": "b"}]},
         ), patch.object(client, "_search_next_page", return_value={"results": [{"id": "c"}]}):
-            items = list(client.iter_topic_articles(topic="x", page_size=2, limit=5, use_next_fallback=True))
+            items = list(
+                client.iter_topic_articles(
+                    topic="x", page_size=2, limit=5, use_next_fallback=True
+                ))
             self.assertEqual(len(items), 3)
 
 
@@ -367,9 +406,11 @@ class TestGuardianClientGetArticlesForTopicDay(unittest.TestCase):
         """get_articles_for_topic_day: returns the default page size when none is provided."""
         client = GuardianClient(api_key="x")
         with patch.object(client, "iter_topic_articles", return_value=iter([{"id": "a"}])):
-            payload = client.get_articles_for_topic_day(topic="x", page_size=None)
+            payload = client.get_articles_for_topic_day(
+                topic="x", page_size=None)
             self.assertEqual(payload["fetched_count"], 1)
-            self.assertEqual(payload["pagination_summary"]["page_size"], client.default_page_size)
+            self.assertEqual(payload["pagination_summary"]
+                             ["page_size"], client.default_page_size)
 
 
 class TestGuardianClientGetArticleById(unittest.TestCase):
@@ -404,9 +445,11 @@ class TestGuardianClientGetArticleById(unittest.TestCase):
         with patch.object(
             client,
             "_request_json",
-            return_value={"response": {"status": "ok", "content": {"id": "x"}}},
+            return_value={"response": {
+                "status": "ok", "content": {"id": "x"}}},
         ):
-            content = client.get_article_by_id("x/y", extra_params={"show-tags": "all"})
+            content = client.get_article_by_id(
+                "x/y", extra_params={"show-tags": "all"})
 
         self.assertEqual(content["id"], "x")
 
@@ -423,7 +466,8 @@ class TestGuardianClientGetArticlesByIds(unittest.TestCase):
                 RuntimeError("boom"),
                 {"id": "world/3"},
             ]
-            result = client.get_articles_by_ids(["world/1", "world/2", "world/3"])
+            result = client.get_articles_by_ids(
+                ["world/1", "world/2", "world/3"])
 
         self.assertEqual(result["fetched_count"], 2)
         self.assertEqual(result["failed_count"], 1)

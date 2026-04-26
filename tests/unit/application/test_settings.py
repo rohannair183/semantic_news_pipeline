@@ -69,7 +69,8 @@ class TestSettingsFromEnv(unittest.TestCase):
     def test_from_env_raises_when_key_missing(self):
         """from_env: raises when no explicit or environment key is present."""
         with patch.dict(os.environ, {}, clear=True):
-            self.assert_raises_value_error(lambda: Settings.load_settings(load_dotenv=False))
+            self.assert_raises_value_error(
+                lambda: Settings.load_settings(load_dotenv=False))
 
     def test_from_env_validates_page_and_timeout_constraints(self):
         """from_env: rejects invalid page and timeout configuration values."""
@@ -83,22 +84,30 @@ class TestSettingsFromEnv(unittest.TestCase):
             bad_max.write_text("max_page_size: 0\n", encoding="utf-8")
 
             bad_order = root / "bad_order.yaml"
-            bad_order.write_text("default_page_size: 51\nmax_page_size: 50\n", encoding="utf-8")
+            bad_order.write_text(
+                "default_page_size: 51\nmax_page_size: 50\n", encoding="utf-8")
 
             bad_timeout = root / "bad_timeout.yaml"
             bad_timeout.write_text("timeout_seconds: 0\n", encoding="utf-8")
 
             self.assert_raises_value_error(
-                lambda: Settings.load_settings(api_key="k", load_dotenv=False, config_path=bad_default)
+                lambda: Settings.load_settings(
+                    api_key="k", load_dotenv=False, config_path=bad_default)
             )
             self.assert_raises_value_error(
-                lambda: Settings.load_settings(api_key="k", load_dotenv=False, config_path=bad_max)
+                lambda: Settings.load_settings(
+                    api_key="k", load_dotenv=False, config_path=bad_max)
             )
             self.assert_raises_value_error(
-                lambda: Settings.load_settings(api_key="k", load_dotenv=False, config_path=bad_order)
+                lambda: Settings.load_settings(
+                    api_key="k",
+                    load_dotenv=False,
+                    config_path=bad_order
+                )
             )
             self.assert_raises_value_error(
-                lambda: Settings.load_settings(api_key="k", load_dotenv=False, config_path=bad_timeout)
+                lambda: Settings.load_settings(
+                    api_key="k", load_dotenv=False, config_path=bad_timeout)
             )
 
 
@@ -122,30 +131,37 @@ class TestSettingsLoadEnvFile(unittest.TestCase):
             )
 
             with patch.dict(os.environ, {}, clear=True):
-                getattr(Settings, "_load_env_file")(search_paths=[Path(tmp_dir)])
-                self.assertEqual(os.environ.get("GUARDIAN_API_KEY"), "from_file")
+                getattr(Settings, "_load_env_file")(
+                    search_paths=[Path(tmp_dir)])
+                self.assertEqual(os.environ.get(
+                    "GUARDIAN_API_KEY"), "from_file")
                 self.assertEqual(os.environ.get("EXTRA"), "value")
 
     def test_load_env_file_returns_early_if_key_already_set(self):
         """_load_env_file: does nothing when GUARDIAN_API_KEY already exists."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             env_path = Path(tmp_dir) / ".env"
-            env_path.write_text("GUARDIAN_API_KEY=from_file\n", encoding="utf-8")
+            env_path.write_text(
+                "GUARDIAN_API_KEY=from_file\n", encoding="utf-8")
 
             with patch.dict(os.environ, {"GUARDIAN_API_KEY": "existing"}, clear=True):
-                getattr(Settings, "_load_env_file")(search_paths=[Path(tmp_dir)])
-                self.assertEqual(os.environ.get("GUARDIAN_API_KEY"), "existing")
+                getattr(Settings, "_load_env_file")(
+                    search_paths=[Path(tmp_dir)])
+                self.assertEqual(os.environ.get(
+                    "GUARDIAN_API_KEY"), "existing")
 
     def test_load_env_file_skips_duplicate_search_paths(self):
         """_load_env_file: ignores duplicate roots after the first pass."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             env_path = root / ".env"
-            env_path.write_text("GUARDIAN_API_KEY=from_file\n", encoding="utf-8")
+            env_path.write_text(
+                "GUARDIAN_API_KEY=from_file\n", encoding="utf-8")
 
             with patch.dict(os.environ, {}, clear=True):
                 getattr(Settings, "_load_env_file")(search_paths=[root, root])
-                self.assertEqual(os.environ.get("GUARDIAN_API_KEY"), "from_file")
+                self.assertEqual(os.environ.get(
+                    "GUARDIAN_API_KEY"), "from_file")
 
     def test_load_env_file_duplicate_and_missing_search_paths(self):
         """_load_env_file: gracefully handles duplicate and non-existent paths."""
@@ -153,7 +169,8 @@ class TestSettingsLoadEnvFile(unittest.TestCase):
             root = Path(tmp_dir)
             missing = root / "missing"
             with patch.dict(os.environ, {}, clear=True):
-                getattr(Settings, "_load_env_file")(search_paths=[missing, missing])
+                getattr(Settings, "_load_env_file")(
+                    search_paths=[missing, missing])
                 self.assertIsNone(os.environ.get("GUARDIAN_API_KEY"))
 
     def test_load_env_file_uses_default_search_paths(self):
@@ -161,11 +178,16 @@ class TestSettingsLoadEnvFile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)
             env_path = root / ".env"
-            env_path.write_text("GUARDIAN_API_KEY=from_default_paths\n", encoding="utf-8")
+            env_path.write_text(
+                "GUARDIAN_API_KEY=from_default_paths\n", encoding="utf-8")
 
-            with patch.dict(os.environ, {}, clear=True), patch("src.application.settings.Path.cwd", return_value=root):
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("src.application.settings.Path.cwd", return_value=root)
+            ):
                 getattr(Settings, "_load_env_file")()
-                self.assertEqual(os.environ.get("GUARDIAN_API_KEY"), "from_default_paths")
+                self.assertEqual(os.environ.get(
+                    "GUARDIAN_API_KEY"), "from_default_paths")
 
 
 class TestSettingsLoadIngestionConfig(unittest.TestCase):
@@ -175,7 +197,8 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         """_load_ingestion_config: loads the repository default YAML file."""
         values = getattr(Settings, "_load_ingestion_config")()
 
-        self.assertEqual(values["base_url"], "https://content.guardianapis.com")
+        self.assertEqual(values["base_url"],
+                         "https://content.guardianapis.com")
         self.assertEqual(values["default_page_size"], 50)
         self.assertEqual(values["max_page_size"], 50)
         self.assertEqual(values["timeout_seconds"], 30)
@@ -199,7 +222,8 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            values = getattr(Settings, "_load_ingestion_config")(config_path=config_path)
+            values = getattr(Settings, "_load_ingestion_config")(
+                config_path=config_path)
 
         self.assertEqual(values["base_url"], "https://one.test")
         self.assertEqual(values["default_page_size"], 12)
@@ -210,7 +234,8 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         """_load_ingestion_config: returns empty mapping for absent file."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             missing = Path(tmp_dir) / "missing.yaml"
-            values = getattr(Settings, "_load_ingestion_config")(config_path=missing)
+            values = getattr(Settings, "_load_ingestion_config")(
+                config_path=missing)
         self.assertEqual(values, {})
 
 

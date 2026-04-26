@@ -19,6 +19,7 @@ class GuardianClient:
     responsible for making HTTP requests to the API, handling authentication, and processing the
     responses. It provides methods for fetching articles based on specified topics and parameters.
     """
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -68,7 +69,8 @@ class GuardianClient:
             try:
                 return date.fromisoformat(run_date).isoformat()
             except ValueError as exc:
-                raise ValueError("run_date must be in YYYY-MM-DD format") from exc
+                raise ValueError(
+                    "run_date must be in YYYY-MM-DD format") from exc
         raise ValueError("run_date must be a date, datetime, string, or None")
 
     def _validate_page_size(self, page_size: int) -> int:
@@ -78,7 +80,8 @@ class GuardianClient:
         Returns:
             int: The validated page size."""
         if page_size < 1 or page_size > self.max_page_size:
-            raise ValueError(f"page_size must be between 1 and {self.max_page_size}")
+            raise ValueError(
+                f"page_size must be between 1 and {self.max_page_size}")
         return page_size
 
     def _throttle(self) -> None:
@@ -103,9 +106,11 @@ class GuardianClient:
                 return json.loads(response.read().decode("utf-8"))
         except HTTPError as exc:
             body = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"Guardian API HTTP error {exc.code}: {body}") from exc
+            raise RuntimeError(
+                f"Guardian API HTTP error {exc.code}: {body}") from exc
         except URLError as exc:
-            raise RuntimeError(f"Guardian API connection error: {exc.reason}") from exc
+            raise RuntimeError(
+                f"Guardian API connection error: {exc.reason}") from exc
 
     def _extract_response_or_raise(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Extract and validate the top-level response object."""
@@ -113,7 +118,8 @@ class GuardianClient:
             raise ValueError("Invalid Guardian API payload: missing response")
         response = payload["response"]
         if response.get("status") != "ok":
-            raise RuntimeError(f"Guardian API returned status={response.get('status')}")
+            raise RuntimeError(
+                f"Guardian API returned status={response.get('status')}")
         return response
 
     def _build_search_params(
@@ -187,7 +193,6 @@ class GuardianClient:
         payload = self._request_json(path, params)
         return self._extract_response_or_raise(payload)
 
-
     def get_articles_list_by_topic(self, topic: str, params: Optional[Dict[str, Any]] = None) -> dict:
         """
         Fetches articles from the Open Guardian API based on the specified topic and parameters.
@@ -200,7 +205,8 @@ class GuardianClient:
         """
         params = params or {}
         page = int(params.pop("page", 1))
-        page_size = int(params.pop("page-size", params.pop("page_size", self.default_page_size)))
+        page_size = int(params.pop(
+            "page-size", params.pop("page_size", self.default_page_size)))
         run_date = params.pop("run_date", params.pop("date", None))
         query = params.pop("q", None)
         order_by = params.pop("order-by", "newest")
@@ -366,7 +372,8 @@ class GuardianClient:
         response = self._extract_response_or_raise(payload)
         content = response.get("content")
         if not content:
-            raise ValueError("Guardian API single-item response is missing content")
+            raise ValueError(
+                "Guardian API single-item response is missing content")
         return content
 
     def get_articles_by_ids(
