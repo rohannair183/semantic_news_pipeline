@@ -8,3 +8,10 @@ extraPaths = ["."]
 
 [tool.ruff]
 src = ["src", "tests"]
+
+[tool.coverage.run]
+source = ["src"]
+
+[tool.coverage.report]
+fail_under = 99.5
+show_missing = true
