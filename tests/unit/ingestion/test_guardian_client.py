@@ -158,7 +158,9 @@ class TestGuardianClientInit(GuardianClientTestCase):
     def test_init_allows_none_extra_filters(self, _mock_load_config):
         """__init__: treats null extra_filters as an empty mapping."""
         client = GuardianClient()
-        self.assertEqual(client._profiles["bad_profile"].extra_filters, {})
+        self.assertEqual(
+            client._profiles["bad_profile"].extra_filters, {}  # pylint: disable=protected-access
+        )
 
     @patch(
         "src.ingestion.guardian_client.Settings.load_ingestion_config",
