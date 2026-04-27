@@ -24,7 +24,15 @@ class Settings:
         cls,
         load_dotenv: bool = True,
     ) -> "Settings":
-        """Build settings from environment variables and YAML configuration."""
+        """Build settings from environment variables and YAML configuration.
+
+        Args:
+            load_dotenv: Whether to load a root .env file before reading the
+                environment.
+
+        Returns:
+            A validated Settings instance.
+        """
         if load_dotenv:
             cls._load_env_file()
 
@@ -57,7 +65,11 @@ class Settings:
 
     @staticmethod
     def _load_env_file() -> None:
-        """Load environment variables from the repository root .env file."""
+        """Load environment variables from the repository root .env file.
+
+        Returns:
+            None.
+        """
         if os.getenv("GUARDIAN_API_KEY"):
             return
 
@@ -79,7 +91,11 @@ class Settings:
 
     @classmethod
     def load_ingestion_config(cls) -> Dict[str, Any]:
-        """Load Guardian ingestion settings from YAML config."""
+        """Load Guardian ingestion settings from YAML config.
+
+        Returns:
+            A dictionary of ingestion configuration values.
+        """
         parser = YAMLConfigParser()
         return parser.parse(
             config_type=YAMLConfigType.INGESTION,
