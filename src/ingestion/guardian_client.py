@@ -4,14 +4,13 @@ which is responsible for making HTTP requests to the Open Guardian API and proce
 responses.
 """
 
-import json
 import time
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterator, List, Optional
-from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
-from urllib.request import Request, urlopen
+from urllib.parse import quote
+
+import requests
 
 from src.application.settings import Settings
 
@@ -184,19 +183,21 @@ class GuardianClient:
     def _request_json(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Make a GET request and parse the response body as JSON."""
         self._throttle()
-        query = urlencode(params or {}, doseq=True)
         url = f"{self.base_url}{path}"
-        if query:
-            url = f"{url}?{query}"
-        request = Request(url=url, method="GET")
         try:
-            with urlopen(request, timeout=self.timeout_seconds) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="ignore")
-            raise RuntimeError(f"Guardian API HTTP error {exc.code}: {body}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"Guardian API connection error: {exc.reason}") from exc
+            response = requests.get(
+                url=url,
+                params=params or {},
+                timeout=self.timeout_seconds,
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else "unknown"
+            body = exc.response.text if exc.response is not None else ""
+            raise RuntimeError(f"Guardian API HTTP error {status_code}: {body}") from exc
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Guardian API connection error: {exc}") from exc
 
     def _extract_response_or_raise(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Extract and validate the top-level response object."""

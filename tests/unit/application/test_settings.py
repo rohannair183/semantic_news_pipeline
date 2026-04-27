@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.application.settings import Settings
+from src.enums.yaml_config_type import YAMLConfigType
 
 
 class TestSettingsFromEnv(unittest.TestCase):
@@ -21,28 +22,24 @@ class TestSettingsFromEnv(unittest.TestCase):
             return
         self.fail("ValueError was not raised")
 
-    def test_from_env_with_explicit_key_and_yaml_overrides(self):
-        """from_env: explicit key can be combined with YAML defaults."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config_path = Path(tmp_dir) / "guardian_client.yaml"
-            config_path.write_text(
-                "\n".join(
-                    [
-                        'base_url: "https://example.test"',
-                        "default_page_size: 10",
-                        "max_page_size: 20",
-                        "timeout_seconds: 15",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-            settings = Settings.load_settings(
-                api_key="explicit",
-                load_dotenv=False,
-                config_path=config_path,
-            )
+    def test_from_env_uses_environment_key_and_yaml_overrides(self):
+        """from_env: environment key can be combined with YAML defaults."""
+        with (
+            patch.dict(os.environ, {"GUARDIAN_API_KEY": "from_env"}, clear=True),
+            patch.object(
+                Settings,
+                "load_ingestion_config",
+                return_value={
+                    "base_url": "https://example.test",
+                    "default_page_size": 10,
+                    "max_page_size": 20,
+                    "timeout_seconds": 15,
+                },
+            ),
+        ):
+            settings = Settings.load_settings(load_dotenv=False)
 
-        self.assertEqual(settings.api_key, "explicit")
+        self.assertEqual(settings.api_key, "from_env")
         self.assertEqual(settings.base_url, "https://example.test")
         self.assertEqual(settings.default_page_size, 10)
         self.assertEqual(settings.max_page_size, 20)
@@ -74,89 +71,54 @@ class TestSettingsFromEnv(unittest.TestCase):
 
     def test_from_env_validates_page_and_timeout_constraints(self):
         """from_env: rejects invalid page and timeout configuration values."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
+        invalid_configs = [
+            {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 0,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+            },
+            {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 50,
+                "max_page_size": 0,
+                "timeout_seconds": 30,
+            },
+            {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 51,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+            },
+            {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 50,
+                "max_page_size": 50,
+                "timeout_seconds": 0,
+            },
+        ]
 
-            bad_default = root / "bad_default.yaml"
-            bad_default.write_text(
-                "\n".join(
-                    [
-                        'base_url: "https://content.guardianapis.com"',
-                        "default_page_size: 0",
-                        "max_page_size: 50",
-                        "timeout_seconds: 30",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            bad_max = root / "bad_max.yaml"
-            bad_max.write_text(
-                "\n".join(
-                    [
-                        'base_url: "https://content.guardianapis.com"',
-                        "default_page_size: 50",
-                        "max_page_size: 0",
-                        "timeout_seconds: 30",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            bad_order = root / "bad_order.yaml"
-            bad_order.write_text(
-                "\n".join(
-                    [
-                        'base_url: "https://content.guardianapis.com"',
-                        "default_page_size: 51",
-                        "max_page_size: 50",
-                        "timeout_seconds: 30",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            bad_timeout = root / "bad_timeout.yaml"
-            bad_timeout.write_text(
-                "\n".join(
-                    [
-                        'base_url: "https://content.guardianapis.com"',
-                        "default_page_size: 50",
-                        "max_page_size: 50",
-                        "timeout_seconds: 0",
-                    ]
-                ),
-                encoding="utf-8",
-            )
-
-            self.assert_raises_value_error(
-                lambda: Settings.load_settings(
-                    api_key="k", load_dotenv=False, config_path=bad_default)
-            )
-            self.assert_raises_value_error(
-                lambda: Settings.load_settings(
-                    api_key="k", load_dotenv=False, config_path=bad_max)
-            )
-            self.assert_raises_value_error(
-                lambda: Settings.load_settings(
-                    api_key="k",
-                    load_dotenv=False,
-                    config_path=bad_order
-                )
-            )
-            self.assert_raises_value_error(
-                lambda: Settings.load_settings(
-                    api_key="k", load_dotenv=False, config_path=bad_timeout)
-            )
+        with patch.dict(os.environ, {"GUARDIAN_API_KEY": "k"}, clear=True):
+            for config_values in invalid_configs:
+                with self.subTest(config_values=config_values), patch.object(
+                    Settings, "load_ingestion_config", return_value=config_values
+                ):
+                    self.assert_raises_value_error(
+                        lambda: Settings.load_settings(load_dotenv=False)
+                    )
 
 
 class TestSettingsLoadEnvFile(unittest.TestCase):
     """This class tests _load_env_file."""
 
-    def test_load_env_file_uses_first_existing_file(self):
-        """_load_env_file: loads key/value pairs and ignores comments/invalid lines."""
+    def test_load_env_file_reads_repo_root_env(self):
+        """_load_env_file: loads key/value pairs from repository-root .env."""
         with tempfile.TemporaryDirectory() as tmp_dir:
-            env_path = Path(tmp_dir) / ".env"
+            root = Path(tmp_dir)
+            src_dir = root / "src" / "application"
+            src_dir.mkdir(parents=True)
+            fake_settings_path = src_dir / "settings.py"
+            env_path = root / ".env"
             env_path.write_text(
                 "\n".join(
                     [
@@ -169,9 +131,11 @@ class TestSettingsLoadEnvFile(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with patch.dict(os.environ, {}, clear=True):
-                getattr(Settings, "_load_env_file")(
-                    search_paths=[Path(tmp_dir)])
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("src.application.settings.__file__", str(fake_settings_path)),
+            ):
+                getattr(Settings, "_load_env_file")()
                 self.assertEqual(os.environ.get(
                     "GUARDIAN_API_KEY"), "from_file")
                 self.assertEqual(os.environ.get("EXTRA"), "value")
@@ -179,62 +143,44 @@ class TestSettingsLoadEnvFile(unittest.TestCase):
     def test_load_env_file_returns_early_if_key_already_set(self):
         """_load_env_file: does nothing when GUARDIAN_API_KEY already exists."""
         with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            src_dir = root / "src" / "application"
+            src_dir.mkdir(parents=True)
+            fake_settings_path = src_dir / "settings.py"
             env_path = Path(tmp_dir) / ".env"
             env_path.write_text(
                 "GUARDIAN_API_KEY=from_file\n", encoding="utf-8")
 
-            with patch.dict(os.environ, {"GUARDIAN_API_KEY": "existing"}, clear=True):
-                getattr(Settings, "_load_env_file")(
-                    search_paths=[Path(tmp_dir)])
-                self.assertEqual(os.environ.get(
-                    "GUARDIAN_API_KEY"), "existing")
-
-    def test_load_env_file_skips_duplicate_search_paths(self):
-        """_load_env_file: ignores duplicate roots after the first pass."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
-            env_path = root / ".env"
-            env_path.write_text(
-                "GUARDIAN_API_KEY=from_file\n", encoding="utf-8")
-
-            with patch.dict(os.environ, {}, clear=True):
-                getattr(Settings, "_load_env_file")(search_paths=[root, root])
-                self.assertEqual(os.environ.get(
-                    "GUARDIAN_API_KEY"), "from_file")
-
-    def test_load_env_file_duplicate_and_missing_search_paths(self):
-        """_load_env_file: gracefully handles duplicate and non-existent paths."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
-            missing = root / "missing"
-            with patch.dict(os.environ, {}, clear=True):
-                getattr(Settings, "_load_env_file")(
-                    search_paths=[missing, missing])
-                self.assertIsNone(os.environ.get("GUARDIAN_API_KEY"))
-
-    def test_load_env_file_uses_default_search_paths(self):
-        """_load_env_file: discovers .env files using the default search path list."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
-            env_path = root / ".env"
-            env_path.write_text(
-                "GUARDIAN_API_KEY=from_default_paths\n", encoding="utf-8")
-
             with (
-                patch.dict(os.environ, {}, clear=True),
-                patch("src.application.settings.Path.cwd", return_value=root)
+                patch.dict(os.environ, {"GUARDIAN_API_KEY": "existing"}, clear=True),
+                patch("src.application.settings.__file__", str(fake_settings_path)),
             ):
                 getattr(Settings, "_load_env_file")()
                 self.assertEqual(os.environ.get(
-                    "GUARDIAN_API_KEY"), "from_default_paths")
+                    "GUARDIAN_API_KEY"), "existing")
+
+    def test_load_env_file_returns_when_root_env_missing(self):
+        """_load_env_file: leaves environment unchanged when root .env is absent."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            src_dir = root / "src" / "application"
+            src_dir.mkdir(parents=True)
+            fake_settings_path = src_dir / "settings.py"
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("src.application.settings.__file__", str(fake_settings_path)),
+            ):
+                getattr(Settings, "_load_env_file")()
+                self.assertIsNone(os.environ.get("GUARDIAN_API_KEY"))
 
 
 class TestSettingsLoadIngestionConfig(unittest.TestCase):
-    """This class tests _load_ingestion_config."""
+    """This class tests load_ingestion_config."""
 
     def test_load_ingestion_config_uses_default_path(self):
-        """_load_ingestion_config: loads the repository default YAML file."""
-        values = getattr(Settings, "_load_ingestion_config")()
+        """load_ingestion_config: loads the repository default YAML file."""
+        values = Settings.load_ingestion_config()
 
         self.assertEqual(values["base_url"],
                          "https://content.guardianapis.com")
@@ -243,66 +189,20 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         self.assertEqual(values["timeout_seconds"], 30)
         self.assertIn("profiles", values)
 
-    def test_load_ingestion_config_parses_nested_yaml_values(self):
-        """_load_ingestion_config: parses nested profile maps from YAML."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config_path = Path(tmp_dir) / "guardian_client.yaml"
-            config_path.write_text(
-                "\n".join(
-                    [
-                        'base_url: "https://one.test"',
-                        "default_page_size: 12",
-                        "max_page_size: 20",
-                        "timeout_seconds: 10",
-                        "profiles:",
-                        "  daily_tech:",
-                        '    topic: "technology"',
-                        "    page_size: 10",
-                        "    use_next_fallback: true",
-                        "    extra_filters:",
-                        '      section: "technology"',
-                    ]
-                ),
-                encoding="utf-8",
-            )
+    def test_load_ingestion_config_calls_parser_with_defaults(self):
+        """load_ingestion_config: calls parser with ingestion defaults."""
+        with patch("src.application.settings.YAMLConfigParser") as parser_cls:
+            parser_instance = parser_cls.return_value
+            parser_instance.parse.return_value = {"base_url": "https://mock"}
 
-            values = getattr(Settings, "_load_ingestion_config")(
-                config_path=config_path)
-
-        self.assertEqual(values["base_url"], "https://one.test")
-        self.assertEqual(values["default_page_size"], 12)
-        self.assertEqual(values["profiles"]["daily_tech"]["topic"], "technology")
-        self.assertEqual(values["profiles"]["daily_tech"]["page_size"], 10)
-        self.assertEqual(
-            values["profiles"]["daily_tech"]["extra_filters"]["section"], "technology"
-        )
-
-    def test_load_ingestion_config_returns_empty_for_missing_file(self):
-        """_load_ingestion_config: returns empty mapping for absent file."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            missing = Path(tmp_dir) / "missing.yaml"
-            values = getattr(Settings, "_load_ingestion_config")(
-                config_path=missing)
-        self.assertEqual(values, {})
-
-    def test_load_ingestion_config_rejects_non_mapping_yaml(self):
-        """_load_ingestion_config: raises when YAML root is not a mapping."""
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            config_path = Path(tmp_dir) / "guardian_client.yaml"
-            config_path.write_text("- one\n- two\n", encoding="utf-8")
-            with self.assertRaises(ValueError):
-                getattr(Settings, "_load_ingestion_config")(config_path=config_path)
-
-    def test_load_ingestion_config_public_wrapper(self):
-        """load_ingestion_config: delegates to internal loader."""
-        with patch.object(
-            Settings,
-            "_load_ingestion_config",
-            return_value={"base_url": "https://wrapped.test"},
-        ) as mock_internal:
             values = Settings.load_ingestion_config()
-        self.assertEqual(values["base_url"], "https://wrapped.test")
-        mock_internal.assert_called_once_with(config_path=None)
+
+        parser_cls.assert_called_once_with()
+        parser_instance.parse.assert_called_once_with(
+            config_type=YAMLConfigType.INGESTION,
+            filename="guardian_client.yaml",
+        )
+        self.assertEqual(values, {"base_url": "https://mock"})
 
 
 if __name__ == "__main__":  # pragma: no cover

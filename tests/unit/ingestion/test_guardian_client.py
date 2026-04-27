@@ -1,12 +1,12 @@
 # pyright: reportPrivateUsage=false
 """Unit tests for the GuardianClient class in the src.ingestion module."""
 
-import io
 import unittest
 from datetime import date, datetime, timezone
-from email.message import Message
+from unittest.mock import Mock
 from unittest.mock import patch
-from urllib.error import HTTPError, URLError
+
+import requests
 
 from src.application.settings import Settings
 from src.ingestion.guardian_client import GuardianClient, GuardianSearchRequest
@@ -254,45 +254,43 @@ class TestGuardianClientRequestJson(GuardianClientTestCase):
     """This class tests _request_json."""
 
     def test_request_json_success_and_error_paths(self):
-        """_request_json: returns JSON on success and wraps HTTP/URL errors."""
+        """_request_json: returns JSON on success and wraps HTTP/request errors."""
         client = GuardianClient()
 
-        class FakeResponse:
-            """A fake response object for testing urlopen context management and reading."""
-
-            def __enter__(self):
-                """Support context management protocol."""
-                return self
-
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                """Support context management protocol."""
-                return False
-
-            def read(self):
-                """Return bytes representing a JSON payload."""
-                return b'{"response": {"status": "ok"}}'
-
         with patch.object(client, "_throttle"), patch(
-            "src.ingestion.guardian_client.urlopen", return_value=FakeResponse()
-        ):
+            "src.ingestion.guardian_client.requests.get"
+        ) as mock_get:
+            mock_response = Mock()
+            mock_response.raise_for_status.return_value = None
+            mock_response.json.return_value = {"response": {"status": "ok"}}
+            mock_get.return_value = mock_response
             payload = getattr(client, "_request_json")("/search", {"a": 1})
         self.assertEqual(payload["response"]["status"], "ok")
+        mock_get.assert_called_once_with(
+            url="https://content.guardianapis.com/search",
+            params={"a": 1},
+            timeout=15,
+        )
 
-        http_err = HTTPError(
-            url="u",
-            code=400,
-            msg="bad",
-            hdrs=Message(),
-            fp=io.BytesIO(b"detail"),
+        http_response = Mock()
+        http_response.status_code = 400
+        http_response.text = "detail"
+        http_err = requests.HTTPError(
+            "bad request",
+            response=http_response,
         )
         with patch.object(client, "_throttle"), patch(
-            "src.ingestion.guardian_client.urlopen", side_effect=http_err
-        ):
+            "src.ingestion.guardian_client.requests.get"
+        ) as mock_get:
+            mock_response = Mock()
+            mock_response.raise_for_status.side_effect = http_err
+            mock_get.return_value = mock_response
             with self.assertRaises(RuntimeError):
                 getattr(client, "_request_json")("/search")
 
         with patch.object(client, "_throttle"), patch(
-            "src.ingestion.guardian_client.urlopen", side_effect=URLError("down")
+            "src.ingestion.guardian_client.requests.get",
+            side_effect=requests.RequestException("down"),
         ):
             with self.assertRaises(RuntimeError):
                 getattr(client, "_request_json")("/search")

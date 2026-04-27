@@ -3,8 +3,10 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
-import yaml
+from typing import Any, Dict
+
+from src.application.yaml_config_parser import YAMLConfigParser
+from src.enums.yaml_config_type import YAMLConfigType
 
 
 @dataclass(frozen=True)
@@ -20,21 +22,17 @@ class Settings:
     @classmethod
     def load_settings(
         cls,
-        api_key: Optional[str] = None,
-        env_var: str = "GUARDIAN_API_KEY",
         load_dotenv: bool = True,
-        search_paths: Optional[Iterable[Path]] = None,
-        config_path: Optional[Path] = None,
     ) -> "Settings":
-        """Build settings from explicit args or environment variables."""
+        """Build settings from environment variables and YAML configuration."""
         if load_dotenv:
-            cls._load_env_file(search_paths=search_paths)
+            cls._load_env_file()
 
-        resolved_key = api_key or os.getenv(env_var)
+        resolved_key = os.getenv("GUARDIAN_API_KEY")
         if not resolved_key:
             raise ValueError("API key for Open Guardian API is not set")
 
-        config_values = cls._load_ingestion_config(config_path=config_path)
+        config_values = cls.load_ingestion_config()
         base_url = str(config_values.get("base_url"))
         default_page_size = int(config_values.get("default_page_size"))
         max_page_size = int(config_values.get("max_page_size"))
@@ -58,54 +56,32 @@ class Settings:
         )
 
     @staticmethod
-    def _load_env_file(search_paths: Optional[Iterable[Path]] = None) -> None:
-        """Load environment variables from the first .env file found."""
+    def _load_env_file() -> None:
+        """Load environment variables from the repository root .env file."""
         if os.getenv("GUARDIAN_API_KEY"):
             return
 
-        if search_paths is None:
-            module_path = Path(__file__).resolve()
-            search_paths = [Path.cwd(), module_path.parent] + list(module_path.parents)
+        module_path = Path(__file__).resolve()
+        env_path = module_path.parents[2] / ".env"
+        if not env_path.is_file():
+            return
 
-        seen_paths = set()
-        for root in search_paths:
-            env_path = (root / ".env").resolve()
-            if env_path in seen_paths:
-                continue
-            seen_paths.add(env_path)
-            if not env_path.is_file():
-                continue
-
-            with env_path.open("r", encoding="utf-8") as env_file:
-                for raw_line in env_file:
-                    line = raw_line.strip()
-                    if not line or line.startswith("#") or "=" not in line:
-                        continue
-                    key, value = line.split("=", 1)
-                    key = key.strip()
-                    value = value.strip().strip('"').strip("'")
-                    if key and key not in os.environ:
-                        os.environ[key] = value
-            break
+        with env_path.open("r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
 
     @classmethod
-    def load_ingestion_config(cls, config_path: Optional[Path] = None) -> Dict[str, Any]:
-        """Public wrapper for loading Guardian ingestion config values."""
-        return cls._load_ingestion_config(config_path=config_path)
-
-    @staticmethod
-    def _load_ingestion_config(config_path: Optional[Path] = None) -> Dict[str, Any]:
+    def load_ingestion_config(cls) -> Dict[str, Any]:
         """Load Guardian ingestion settings from YAML config."""
-        if config_path is None:
-            module_path = Path(__file__).resolve()
-            config_path = module_path.parents[2] / "configuration" / "ingestion" / "guardian_client.yaml"
-
-        if not config_path.is_file():
-            return {}
-
-        with config_path.open("r", encoding="utf-8") as config_file:
-            parsed_values = yaml.safe_load(config_file) or {}
-
-        if not isinstance(parsed_values, dict):
-            raise ValueError("Ingestion config YAML must parse to a mapping")
-        return parsed_values
+        parser = YAMLConfigParser()
+        return parser.parse(
+            config_type=YAMLConfigType.INGESTION,
+            filename="guardian_client.yaml",
+        )
