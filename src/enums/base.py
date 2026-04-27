@@ -3,7 +3,7 @@
 from enum import Enum
 from typing import List, Type, TypeVar
 
-BaseEnumType = TypeVar("BaseEnumType", bound="BaseEnum")
+BaseEnumT = TypeVar("BaseEnumT", bound="BaseEnum")
 
 
 class BaseEnum(str, Enum):
@@ -23,11 +23,12 @@ class BaseEnum(str, Enum):
         return value in cls.values()
 
     @classmethod
-    def from_value(cls: Type[BaseEnumType], value: str) -> BaseEnumType:
+    def from_value(cls: Type[BaseEnumT], value: str) -> BaseEnumT:
         """Parse a value into an enum member with a helpful error message."""
         try:
             return cls(value)
         except ValueError as exc:
             raise ValueError(
-                f"'{value}' is not a valid {cls.__name__}. Expected one of: {', '.join(cls.values())}"
+                f"'{value}' is not a valid {cls.__name__}. \
+Expected one of: {', '.join(cls.values())}"
             ) from exc
