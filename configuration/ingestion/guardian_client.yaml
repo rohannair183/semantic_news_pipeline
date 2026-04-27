@@ -3,6 +3,15 @@ base_url: "https://content.guardianapis.com"
 default_page_size: 50
 max_page_size: 50
 timeout_seconds: 30
+# Profiles: mapping of profile_name -> profile config
+# Each profile may include the following fields:
+#   topic (required): string - topic text used for the search (e.g. "technology").
+#   run_date (optional): date|string|datetime - date to search (YYYY-MM-DD) or datetime; defaults to today UTC.
+#   page_size (optional): int - number of items per page (1..max_page_size); defaults to `default_page_size`.
+#   query (optional): string - full query string to send as `q` (overrides `topic` when present).
+#   extra_filters (optional): mapping - additional query params to include in the request (e.g. {'section': 'science'}).
+#   order_by (optional): string - ordering value for results (default: "newest").
+#   use_next_fallback (optional): bool - if true, use /content/{id}/next deep-pagination when /search pages are exhausted.
 profiles:
   technology_daily:
     topic: "technology"
