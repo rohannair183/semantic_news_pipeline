@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
-from src.application.yaml_config_parser import YAMLConfigParser
+from src.config.yaml_config_parser import YAMLConfigParser
 from src.enums.yaml_config_type import YAMLConfigType
 
 

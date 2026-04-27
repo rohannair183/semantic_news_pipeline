@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.application.yaml_config_parser import YAMLConfigParser
+from src.config.yaml_config_parser import YAMLConfigParser
 from src.enums.yaml_config_type import YAMLConfigType
 
 

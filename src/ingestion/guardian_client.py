@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 import requests
 
-from src.application.settings import Settings
+from src.config.settings import Settings
 
 
 @dataclass(frozen=True)

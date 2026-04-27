@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import requests
 
-from src.application.settings import Settings
+from src.config.settings import Settings
 from src.ingestion.guardian_client import GuardianClient, GuardianSearchRequest
 
 
