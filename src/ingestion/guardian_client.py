@@ -45,7 +45,17 @@ class GuardianClient:
     """
 
     def __init__(self, requests_per_second: float = 1.0):
-        """Initialize client transport settings and configured query profiles."""
+        """Initialize client transport settings and configured query profiles.
+
+        This initializes internal settings from configuration and prepares named
+        query profiles used by the client. 
+
+        Parameters:
+            requests_per_second: Maximum number of requests to make per second.
+
+        Returns:
+            None
+        """
         resolved_settings = Settings.load_settings()
         self._settings = resolved_settings
 
@@ -59,34 +69,64 @@ class GuardianClient:
 
     @property
     def api_key(self) -> str:
-        """Return configured Guardian API key."""
+        """Return configured Guardian API key.
+
+        Returns:
+            str: Configured Guardian API key.
+        """
         return self._settings.api_key
 
     @property
     def base_url(self) -> str:
-        """Return normalized Guardian API base URL."""
+        """Return normalized Guardian API base URL.
+
+        Returns the base URL from settings with any trailing slash removed.
+
+        Returns:
+            str: Normalized Guardian API base URL.
+        """
         return self._settings.base_url.rstrip("/")
 
     @property
     def default_page_size(self) -> int:
-        """Return default page size from settings."""
+        """Return default page size from settings.
+
+        Returns:
+            int: Default page size to request from the API.
+        """
         return self._settings.default_page_size
 
     @property
     def max_page_size(self) -> int:
-        """Return max page size from settings."""
+        """Return max page size from settings.
+
+        Returns:
+            int: Maximum allowed page size for API requests.
+        """
         return self._settings.max_page_size
 
     @property
     def timeout_seconds(self) -> int:
-        """Return request timeout from settings."""
+        """Return request timeout from settings.
+
+        Returns:
+            int: Timeout in seconds for HTTP requests.
+        """
         return self._settings.timeout_seconds
 
     def _load_profiles(
         self,
         profile_values: Optional[Dict[str, Any]],
     ) -> Dict[str, GuardianSearchRequest]:
-        """Validate and load configured query profiles from YAML."""
+        """Validate and load configured query profiles from YAML.
+
+        Parameters:
+            profile_values: Raw mapping of profile configurations loaded from YAML.
+
+        Returns:
+            Dict[str, GuardianSearchRequest]: Resolved mapping of profile name to
+                validated `GuardianSearchRequest` objects.
+        """
         if not isinstance(profile_values, dict) or not profile_values:
             raise ValueError("Ingestion config must define a non-empty 'profiles' mapping")
 
@@ -103,7 +143,15 @@ class GuardianClient:
         profile_name: str,
         raw_profile: Any,
     ) -> GuardianSearchRequest:
-        """Create a validated request object from one raw profile mapping."""
+        """Create a validated request object from one raw profile mapping.
+
+        Parameters:
+            profile_name: The name of the profile used for error messages.
+            raw_profile: Raw profile mapping as loaded from configuration.
+
+        Returns:
+            GuardianSearchRequest: Validated request object for the profile.
+        """
         if not isinstance(raw_profile, dict):
             raise ValueError(f"Profile '{profile_name}' must be a mapping")
 
@@ -137,7 +185,14 @@ class GuardianClient:
         )
 
     def _get_profile_request(self, profile: str) -> GuardianSearchRequest:
-        """Return a configured request profile or raise a helpful error."""
+        """Return a configured request profile or raise a helpful error.
+
+        Parameters:
+            profile: The configured profile name to retrieve.
+
+        Returns:
+            GuardianSearchRequest: The request profile associated with `profile`.
+        """
         if not profile:
             raise ValueError("profile must not be empty")
 
@@ -147,11 +202,22 @@ class GuardianClient:
         return request
 
     def _default_date(self) -> str:
-        """Return today's date in UTC, formatted as YYYY-MM-DD."""
+        """Return today's date in UTC, formatted as YYYY-MM-DD.
+
+        Returns:
+            str: ISO formatted date string (YYYY-MM-DD) in UTC.
+        """
         return datetime.now(timezone.utc).date().isoformat()
 
     def _normalize_date(self, run_date: Optional[Any]) -> str:
-        """Normalize supported date inputs to YYYY-MM-DD."""
+        """Normalize supported date inputs to YYYY-MM-DD.
+
+        Parameters:
+            run_date: A `datetime`, `date`, ISO date `str`, or `None`.
+
+        Returns:
+            str: ISO formatted date string (YYYY-MM-DD).
+        """
         if run_date is None:
             return self._default_date()
         if isinstance(run_date, datetime):
@@ -166,13 +232,24 @@ class GuardianClient:
         raise ValueError("run_date must be a date, datetime, string, or None")
 
     def _validate_page_size(self, page_size: int) -> int:
-        """Validate and return a supported Guardian API page size."""
+        """Validate and return a supported Guardian API page size.
+
+        Parameters:
+            page_size: Requested page size to validate.
+
+        Returns:
+            int: The validated page size.
+        """
         if page_size < 1 or page_size > self.max_page_size:
             raise ValueError(f"page_size must be between 1 and {self.max_page_size}")
         return page_size
 
     def _throttle(self) -> None:
-        """Enforce a minimum delay between requests to avoid rate limits."""
+        """Enforce a minimum delay between requests to avoid rate limits.
+
+        Returns:
+            None
+        """
         min_interval = 1.0 / self.requests_per_second
         now = time.monotonic()
         elapsed = now - self._last_request_time
@@ -181,7 +258,15 @@ class GuardianClient:
         self._last_request_time = time.monotonic()
 
     def _request_json(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Make a GET request and parse the response body as JSON."""
+        """Make a GET request and parse the response body as JSON.
+
+        Parameters:
+            path: API path to append to the base URL (e.g. '/search').
+            params: Query parameters to include with the request.
+
+        Returns:
+            Dict[str, Any]: Parsed JSON payload returned by the API.
+        """
         self._throttle()
         url = f"{self.base_url}{path}"
         try:
@@ -200,7 +285,14 @@ class GuardianClient:
             raise RuntimeError(f"Guardian API connection error: {exc}") from exc
 
     def _extract_response_or_raise(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract and validate the top-level response object."""
+        """Extract and validate the top-level response object.
+
+        Parameters:
+            payload: Raw JSON payload returned from the Guardian API.
+
+        Returns:
+            Dict[str, Any]: The validated `response` object from the payload.
+        """
         if not isinstance(payload, dict) or "response" not in payload:
             raise ValueError("Invalid Guardian API payload: missing response")
         response = payload["response"]
@@ -213,7 +305,15 @@ class GuardianClient:
         request: GuardianSearchRequest,
         page: int,
     ) -> Dict[str, Any]:
-        """Build a validated parameter set for the /search endpoint."""
+        """Build a validated parameter set for the /search endpoint.
+
+        Parameters:
+            request: The resolved `GuardianSearchRequest` for which to build params.
+            page: Page number to request.
+
+        Returns:
+            Dict[str, Any]: Query parameters suitable for the `/search` endpoint.
+        """
         if not request.topic:
             raise ValueError("topic must not be empty")
 
@@ -235,7 +335,15 @@ class GuardianClient:
         return params
 
     def _search_page(self, request: GuardianSearchRequest, page: int) -> Dict[str, Any]:
-        """Fetch one /search page for a configured request profile."""
+        """Fetch one /search page for a configured request profile.
+
+        Parameters:
+            request: The `GuardianSearchRequest` to execute.
+            page: Page number to fetch.
+
+        Returns:
+            Dict[str, Any]: The top-level `response` object from the API.
+        """
         payload = self._request_json("/search", self._build_search_params(request, page))
         return self._extract_response_or_raise(payload)
 
@@ -244,7 +352,15 @@ class GuardianClient:
         last_content_id: str,
         base_query_params: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Fetch deep-pagination continuation using /content/{id}/next."""
+        """Fetch deep-pagination continuation using /content/{id}/next.
+
+        Parameters:
+            last_content_id: The last-seen content id used to continue pagination.
+            base_query_params: Base query parameters to include with the /next call.
+
+        Returns:
+            Dict[str, Any]: The top-level `response` object from the API.
+        """
         if not last_content_id:
             raise ValueError("last_content_id must not be empty")
         encoded_id = quote(last_content_id, safe="/")
@@ -256,7 +372,14 @@ class GuardianClient:
         return self._extract_response_or_raise(payload)
 
     def _iter_search_responses(self, request: GuardianSearchRequest) -> Iterator[Dict[str, Any]]:
-        """Yield sequential /search responses until pagination is exhausted."""
+        """Yield sequential /search responses until pagination is exhausted.
+
+        Parameters:
+            request: The resolved `GuardianSearchRequest` to iterate.
+
+        Returns:
+            Iterator[Dict[str, Any]]: Iterator yielding top-level response dicts.
+        """
         page = 1
         while True:
             response = self._search_page(request, page)
@@ -272,7 +395,14 @@ class GuardianClient:
             page += 1
 
     def _build_next_query_params(self, request: GuardianSearchRequest) -> Dict[str, Any]:
-        """Build /next continuation params from the base search request."""
+        """Build /next continuation params from the base search request.
+
+        Parameters:
+            request: The resolved `GuardianSearchRequest` to base params on.
+
+        Returns:
+            Dict[str, Any]: Query parameters for /content/{id}/next calls.
+        """
         params = self._build_search_params(request, page=1)
         params.pop("page", None)
         return params
@@ -283,7 +413,16 @@ class GuardianClient:
         base_query_params: Dict[str, Any],
         page_size: int,
     ) -> Iterator[Dict[str, Any]]:
-        """Yield /next responses until the continuation stream is exhausted."""
+        """Yield /next responses until the continuation stream is exhausted.
+
+        Parameters:
+            start_id: The content id to start continuation from.
+            base_query_params: Base query parameters for the continuation calls.
+            page_size: Page size expected for continuation results.
+
+        Returns:
+            Iterator[Dict[str, Any]]: Iterator yielding top-level response dicts.
+        """
         current_id: Optional[str] = start_id
         while current_id is not None:
             response = self._search_next_page(current_id, base_query_params)
@@ -301,7 +440,15 @@ class GuardianClient:
         results: List[Dict[str, Any]],
         state: IterationState,
     ) -> Iterator[Dict[str, Any]]:
-        """Yield items while maintaining iteration state and optional limit."""
+        """Yield items while maintaining iteration state and optional limit.
+
+        Parameters:
+            results: List of result objects to yield from.
+            state: Mutable `IterationState` tracking remaining items and last id.
+
+        Returns:
+            Iterator[Dict[str, Any]]: Iterator yielding individual result items.
+        """
         for item in results:
             state.last_id = item.get("id", state.last_id)
             yield item
@@ -316,7 +463,18 @@ class GuardianClient:
         topic: str,
         params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Fetch one topic list response using ad-hoc params for compatibility."""
+        """Fetch one topic list response using ad-hoc params for compatibility.
+
+        Use this when you need a single page result for an arbitrary topic without
+        relying on a configured YAML profile.
+
+        Parameters:
+            topic: Topic string to search for.
+            params: Optional mapping of ad-hoc query parameters.
+
+        Returns:
+            Dict[str, Any]: Summary dict containing topic, date, pagination and items.
+        """
         payload = params.copy() if params else {}
         page = int(payload.pop("page", 1))
         order_by = payload.pop("order-by", "newest")
@@ -346,7 +504,19 @@ class GuardianClient:
         profile: str,
         limit: Optional[int] = None,
     ) -> Iterator[Dict[str, Any]]:
-        """Yield article list items using a named YAML profile."""
+        """Yield article list items using a named YAML profile.
+
+        Use this generator to stream articles defined by a named profile from
+        configuration. Prefer this when processing many results or when you need
+        to enforce a `limit` while iterating.
+
+        Parameters:
+            profile: The configured profile name to use.
+            limit: Optional maximum number of items to yield.
+
+        Returns:
+            Iterator[Dict[str, Any]]: Iterator yielding article result objects.
+        """
         if limit is not None and limit < 1:
             raise ValueError("limit must be greater than 0")
 
@@ -381,7 +551,19 @@ class GuardianClient:
         profile: str,
         limit: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Return a bounded list of articles for one configured profile/day."""
+        """Return a bounded list of articles for one configured profile/day.
+
+        Use this convenience method when you want a single collected result set
+        (not a streaming generator) for a configured profile and date. It wraps
+        `iter_topic_articles` and returns a dictionary with metadata and items.
+
+        Parameters:
+            profile: The configured profile name to use.
+            limit: Optional maximum number of items to fetch.
+
+        Returns:
+            Dict[str, Any]: Structured result with topic, profile, date and items.
+        """
         request = self._get_profile_request(profile)
         items = list(self.iter_topic_articles(profile=profile, limit=limit))
         return {
@@ -403,7 +585,19 @@ class GuardianClient:
         show_fields: str = "all",
         extra_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Fetch a full single content item by its Guardian content id."""
+        """Fetch a full single content item by its Guardian content id.
+
+        Use this to retrieve the content object for a single Guardian
+        content id when you need full article fields.
+
+        Parameters:
+            content_id: Guardian content id string to fetch (e.g. 'world/2020/...').
+            show_fields: Comma-separated field names or 'all' to include in the response.
+            extra_params: Additional query parameters to send to the API.
+
+        Returns:
+            Dict[str, Any]: The `content` object returned by the Guardian API.
+        """
         if not content_id:
             raise ValueError("content_id must not be empty")
         encoded_id = quote(content_id, safe="/")
@@ -427,7 +621,22 @@ class GuardianClient:
         show_fields: str = "all",
         extra_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Fetch many articles by id and collect successes and failures."""
+        """Fetch many articles by id and collect successes and failures.
+
+        Use this helper to bulk-fetch a set of content ids and receive a
+        summarized result listing successful items and any failures. This is
+        useful for batching requests where individual failures should not abort
+        the whole operation.
+
+        Parameters:
+            content_ids: List of Guardian content id strings to fetch.
+            show_fields: Comma-separated field names or 'all' to include in each response.
+            extra_params: Additional query parameters to include with each request.
+
+        Returns:
+            Dict[str, Any]: A summary containing `fetched_count`, `failed_count`,
+                `items` and `failures`.
+        """
         items: List[Dict[str, Any]] = []
         failures: List[Dict[str, Any]] = []
         for content_id in content_ids:
