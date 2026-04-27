@@ -99,5 +99,5 @@ class Settings:
         parser = YAMLConfigParser()
         return parser.parse(
             config_type=YAMLConfigType.INGESTION,
-            filename="guardian_client.yaml",
+            filename="ingestion_config.yaml",
         )

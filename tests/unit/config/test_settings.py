@@ -197,7 +197,7 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         parser_cls.assert_called_once_with()
         parser_instance.parse.assert_called_once_with(
             config_type=YAMLConfigType.INGESTION,
-            filename="guardian_client.yaml",
+            filename="ingestion_config.yaml",
         )
         self.assertEqual(values, {"base_url": "https://mock"})
 

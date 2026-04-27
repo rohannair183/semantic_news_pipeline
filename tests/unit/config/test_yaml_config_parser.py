@@ -20,8 +20,8 @@ class TestYAMLConfigParser(unittest.TestCase):
     def test_get_config_path_uses_type_folder(self):
         """get_config_path: composes path from root, config type, and filename."""
         parser = YAMLConfigParser(configuration_root=Path("/tmp/config"))
-        path = parser.get_config_path(YAMLConfigType.INGESTION, "guardian_client.yaml")
-        self.assertEqual(path, Path("/tmp/config/ingestion/guardian_client.yaml"))
+        path = parser.get_config_path(YAMLConfigType.INGESTION, "ingestion_config.yaml")
+        self.assertEqual(path, Path("/tmp/config/ingestion/ingestion_config.yaml"))
 
     def test_parse_and_parse_path_success_paths(self):
         """parse/parse_path: reads YAML mapping values for typed and explicit paths."""
@@ -29,14 +29,14 @@ class TestYAMLConfigParser(unittest.TestCase):
             root = Path(tmp_dir)
             config_dir = root / "ingestion"
             config_dir.mkdir(parents=True, exist_ok=True)
-            config_path = config_dir / "guardian_client.yaml"
+            config_path = config_dir / "ingestion_config.yaml"
             config_path.write_text(
                 "base_url: https://content.guardianapis.com\ndefault_page_size: 10\n",
                 encoding="utf-8",
             )
 
             parser = YAMLConfigParser(configuration_root=root)
-            typed_values = parser.parse(YAMLConfigType.INGESTION, "guardian_client.yaml")
+            typed_values = parser.parse(YAMLConfigType.INGESTION, "ingestion_config.yaml")
             explicit_values = parser.parse_path(config_path)
 
         self.assertEqual(typed_values["base_url"], "https://content.guardianapis.com")
