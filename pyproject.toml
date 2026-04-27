@@ -7,6 +7,10 @@ name = "semantic-news-pipeline"
 version = "0.1.0"
 description = "Semantic news pipeline"
 requires-python = ">=3.11"
+dependencies = [
+  "requests>=2.31",
+  "PyYAML>=6.0",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
@@ -32,7 +36,6 @@ dev = [
   "pytest-cov",
   "pylint>=3.3",
   "astroid>=3.3",
-  "PyYAML>=6.0",
   "pyright",
   "ruff",
 ]
@@ -42,5 +45,4 @@ ci = [
   "pytest-cov",
   "pylint>=3.3",
   "astroid>=3.3",
-  "PyYAML>=6.0",
 ]
