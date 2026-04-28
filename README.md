@@ -18,7 +18,8 @@ The pipeline runs once per day and processes only new content.
 	- Pull recent Guardian articles for predefined topics.
 	- Handle pagination.
 	- Load incrementally by publication date/article ID.
-
+ 
+Profiles define named topic searches stored in `configuration/ingestion/ingestion_config.yaml` (each profile specifies topic/query, filters, pagination behavior, and per-profile limits). The `ArticleIngestor` orchestrates a run: it loads the ingestion YAML, resolves which profiles to execute, calls `GuardianClient` for each profile to iterate search results and fetch full article content, aggregates items and failures, and can write per-profile JSON checkpoints to `checkpoints/article_ingestor/`. The `GuardianClient` encapsulates Guardian API interactions: it builds profile-specific search requests, handles pagination and rate-limiting, and exposes helpers such as `iter_topic_articles()` and `get_article_by_id()` used by `ArticleIngestor` to obtain full article payloads. Configuration is sourced from `.env` for `GUARDIAN_API_KEY` and from the ingestion YAML for profile definitions, page sizes, and limits.
 2. **Raw storage**
 	- Persist articles in relational tables with minimal transformation.
 	- Keep key metadata: `title`, `section`, `published_at`, `url`, `api_id`.
