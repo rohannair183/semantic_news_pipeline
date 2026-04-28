@@ -6,11 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "semantic-news-pipeline"
 version = "0.1.0"
 description = "Semantic news pipeline"
-requires-python = ">=3.11"
-dependencies = [
-  "requests>=2.31",
-  "PyYAML>=6.0",
-]
+requires-python = ">=3.9.6"
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

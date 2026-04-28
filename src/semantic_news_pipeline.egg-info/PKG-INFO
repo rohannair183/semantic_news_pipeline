@@ -1,0 +1,19 @@
+Metadata-Version: 2.4
+Name: semantic-news-pipeline
+Version: 0.1.0
+Summary: Semantic news pipeline
+Requires-Python: >=3.9.6
+License-File: LICENSE
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: pytest-cov; extra == "dev"
+Requires-Dist: pylint>=3.3; extra == "dev"
+Requires-Dist: astroid>=3.3; extra == "dev"
+Requires-Dist: pyright; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
+Provides-Extra: ci
+Requires-Dist: pytest; extra == "ci"
+Requires-Dist: pytest-cov; extra == "ci"
+Requires-Dist: pylint>=3.3; extra == "ci"
+Requires-Dist: astroid>=3.3; extra == "ci"
+Dynamic: license-file

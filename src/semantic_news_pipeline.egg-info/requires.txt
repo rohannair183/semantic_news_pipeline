@@ -1,0 +1,14 @@
+
+[ci]
+pytest
+pytest-cov
+pylint>=3.3
+astroid>=3.3
+
+[dev]
+pytest
+pytest-cov
+pylint>=3.3
+astroid>=3.3
+pyright
+ruff
