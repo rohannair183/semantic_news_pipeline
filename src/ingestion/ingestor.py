@@ -24,7 +24,7 @@ class Ingestor:
         self.client = GuardianClient()
         self.parser = YAMLConfigParser()
 
-    def _load_config(self) -> Dict[str, Any]:
+    def load_config(self) -> Dict[str, Any]:
         """Load ingestion configuration from YAML.
 
         Returns:
@@ -92,7 +92,7 @@ class Ingestor:
             raise ValueError("Ingestion config field 'ingestor.limit_per_profile' must be >= 1")
         return resolved_limit
 
-    def _collect_profile_articles(self, profile: str, limit: Optional[int]) -> Dict[str, Any]:
+    def collect_profile_articles(self, profile: str, limit: Optional[int]) -> Dict[str, Any]:
         """Collect full article content for a configured profile.
 
         Parameters:
@@ -133,12 +133,12 @@ class Ingestor:
         Returns:
             Dict[str, Any]: Top-level ingestion summary and per-profile results.
         """
-        config = self._load_config()
+        config = self.load_config()
         profiles_to_run = self._resolve_profiles_to_run(config)
         resolved_limit = self._resolve_limit(config=config)
 
         profile_results = [
-            self._collect_profile_articles(profile=profile, limit=resolved_limit)
+            self.collect_profile_articles(profile=profile, limit=resolved_limit)
             for profile in profiles_to_run
         ]
 

@@ -33,16 +33,16 @@ class TestIngestorInit(unittest.TestCase):
         self.assertIs(ingestor.parser, mock_parser)
 
 class TestIngestorLoadConfig(unittest.TestCase):
-    """This class tests _load_config."""
+    """This class tests load_config."""
 
     def test_load_config_uses_yaml_parser(self):
-        """_load_config: parser.parse is called with ingestion config target."""
+        """load_config: parser.parse is called with ingestion config target."""
         ingestor = _build_ingestor()
         parser = Mock()
         parser.parse.return_value = {"profiles": {"technology_daily": {"topic": "technology"}}}
         ingestor.parser = parser
 
-        result = ingestor._load_config()  # pylint: disable=protected-access
+        result = ingestor.load_config()
 
         self.assertEqual(result, {"profiles": {"technology_daily": {"topic": "technology"}}})
         parser.parse.assert_called_once()
@@ -122,10 +122,10 @@ class TestIngestorResolveProfilesToRun(unittest.TestCase):
 
 
 class TestIngestorCollectProfileArticles(unittest.TestCase):
-    """This class tests _collect_profile_articles."""
+    """This class tests collect_profile_articles."""
 
     def test_collect_profile_articles_handles_successes_and_failures(self):
-        """_collect_profile_articles: collects full items and records per-id failures."""
+        """collect_profile_articles: collects full items and records per-id failures."""
         ingestor = _build_ingestor()
         client = Mock()
         client.iter_topic_articles.return_value = [
@@ -139,7 +139,7 @@ class TestIngestorCollectProfileArticles(unittest.TestCase):
         ]
         ingestor.client = client
 
-        result = ingestor._collect_profile_articles(  # pylint: disable=protected-access
+        result = ingestor.collect_profile_articles(
             profile="technology_daily",
             limit=5,
         )
@@ -163,7 +163,10 @@ class TestIngestorResolveLimit(unittest.TestCase):
         """_resolve_limit: returns None when ingestor config or limit value is missing."""
         self.assertIsNone(
             self.ingestor._resolve_limit(  # pylint: disable=protected-access
-                config={"profiles": {"technology_daily": {"topic": "technology"}}, "ingestor": None},
+                config={
+                    "profiles": {"technology_daily": {"topic": "technology"}},
+                    "ingestor": None
+                },
             )
         )
         self.assertIsNone(
@@ -204,11 +207,15 @@ class TestIngestorRun(unittest.TestCase):
                 "technology_daily": {"topic": "technology"},
                 "science_daily": {"topic": "science"},
             },
-            "ingestor": {"profiles_to_run": ["technology_daily", "science_daily"], "limit_per_profile": 2},
+            "ingestor": {
+                "profiles_to_run":
+                ["technology_daily", "science_daily"],
+                "limit_per_profile": 2
+            },
         }
         ingestor.client = client
         ingestor.parser = parser
-        ingestor._collect_profile_articles = Mock(  # pylint: disable=protected-access
+        ingestor.collect_profile_articles = Mock(
             side_effect=[
                 {
                     "profile": "technology_daily",
@@ -238,11 +245,11 @@ class TestIngestorRun(unittest.TestCase):
         self.assertEqual(result["fetched_count"], 3)
         self.assertEqual(result["failed_count"], 1)
         self.assertEqual(len(result["results"]), 2)
-        ingestor._collect_profile_articles.assert_any_call(  # pylint: disable=protected-access
+        ingestor.collect_profile_articles.assert_any_call(
             profile="technology_daily",
             limit=2,
         )
-        ingestor._collect_profile_articles.assert_any_call(  # pylint: disable=protected-access
+        ingestor.collect_profile_articles.assert_any_call(
             profile="science_daily",
             limit=2,
         )
@@ -256,7 +263,7 @@ class TestIngestorRun(unittest.TestCase):
             "ingestor": {"limit_per_profile": 2},
         }
         ingestor.parser = parser
-        ingestor._collect_profile_articles = Mock(  # pylint: disable=protected-access
+        ingestor.collect_profile_articles = Mock(
             return_value={
                 "profile": "technology_daily",
                 "searched_count": 1,
@@ -270,7 +277,7 @@ class TestIngestorRun(unittest.TestCase):
         result = ingestor.run()
 
         self.assertEqual(result["limit_per_profile"], 2)
-        ingestor._collect_profile_articles.assert_called_once_with(  # pylint: disable=protected-access
+        ingestor.collect_profile_articles.assert_called_once_with(
             profile="technology_daily",
             limit=2,
         )
