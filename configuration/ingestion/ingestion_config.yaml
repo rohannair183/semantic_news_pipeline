@@ -22,11 +22,15 @@ profiles:
     order_by: "newest"
     use_next_fallback: true
 
-# Optional ingestor orchestration settings.
+# Optional article ingestor orchestration settings.
 # - profiles_to_run: if provided, only these profile names are ingested.
 # - limit_per_profile: optional max number of ids/items fetched per profile.
-ingestor:
+# - save_local_checkpoint: write one JSON checkpoint file per profile when true.
+# - checkpoint_dir: local directory for checkpoint files.
+article_ingestor:
   profiles_to_run:
     - technology_daily
     - science_daily
   limit_per_profile: 20
+  save_local_checkpoint: true
+  checkpoint_dir: checkpoints/article_ingestor
