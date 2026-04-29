@@ -10,21 +10,19 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from src.ingestion.article_normalizer import ArticleNormalizer
+from tests.unit.ingestion.test_config_helpers import build_ingestion_config
 
 
 def _build_article_normalizer(config_root: Path) -> ArticleNormalizer:
     with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
         mock_parser = Mock()
-        mock_parser.parse.return_value = {
-            "profiles": {
-                "technology_daily": {"topic": "technology"},
-                "science_daily": {"topic": "science"},
-            },
-            "article_ingestor": {
-                "checkpoint_dir": str(config_root / "checkpoints"),
-                "parquet_dir": str(config_root / "parquet"),
-            },
-        }
+        mock_parser.parse.return_value = build_ingestion_config(
+            save_local_checkpoint=False,
+            checkpoint_dir=str(config_root / "checkpoints"),
+        )
+        mock_parser.parse.return_value["article_ingestor"]["parquet_dir"] = str(
+            config_root / "parquet"
+        )
         mock_parser_class.return_value = mock_parser
         return ArticleNormalizer(configuration_root=config_root)
 

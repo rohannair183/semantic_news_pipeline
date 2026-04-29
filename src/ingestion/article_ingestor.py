@@ -194,7 +194,10 @@ class ArticleIngestor:
         profile_results: List[Dict[str, Any]] = []
         checkpoint_files: List[str] = []
         for profile in self.profiles_to_run:
-            profile_result = self.collect_profile_articles(profile=profile, limit=self.resolved_limit)
+            profile_result = self.collect_profile_articles(
+                profile=profile,
+                limit=self.resolved_limit,
+            )
             profile_results.append(profile_result)
             if self.checkpoint_directory is not None:
                 checkpoint_files.append(

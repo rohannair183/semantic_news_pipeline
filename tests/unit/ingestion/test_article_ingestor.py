@@ -4,18 +4,18 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, Dict, Optional
 from unittest.mock import Mock
 from unittest.mock import patch
+
+from tests.unit.ingestion.test_config_helpers import build_ingestion_config
 
 from src.ingestion.article_ingestor import ArticleIngestor
 
 
-def _build_article_ingestor(config: dict | None = None) -> ArticleIngestor:
+def _build_article_ingestor(config: Optional[Dict[str, Any]] = None) -> ArticleIngestor:
     if config is None:
-        config = {
-            "profiles": {"technology_daily": {"topic": "technology"}},
-            "article_ingestor": {"save_local_checkpoint": False},
-        }
+        config = build_ingestion_config(save_local_checkpoint=False)
     with patch("src.ingestion.article_ingestor.GuardianClient") as mock_client_class, patch(
         "src.ingestion.article_ingestor.YAMLConfigParser"
     ) as mock_parser_class:
@@ -59,7 +59,10 @@ class TestArticleIngestorInit(unittest.TestCase):
         self.assertIsInstance(article_ingestor, ArticleIngestor)
         self.assertIs(article_ingestor.client, mock_client)
         self.assertIs(article_ingestor.parser, mock_parser)
-        self.assertEqual(article_ingestor.config["profiles"], mock_parser.parse.return_value["profiles"])
+        self.assertEqual(
+            article_ingestor.config["profiles"],
+            mock_parser.parse.return_value["profiles"],
+        )
         self.assertEqual(article_ingestor.profiles_to_run, ["science_daily"])
         self.assertEqual(article_ingestor.resolved_limit, 3)
         self.assertEqual(article_ingestor.checkpoint_directory, Path("checkpoints/custom"))
