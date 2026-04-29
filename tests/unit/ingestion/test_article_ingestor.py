@@ -59,7 +59,7 @@ class TestArticleIngestorInit(unittest.TestCase):
     @patch("src.ingestion.article_ingestor.Settings.load_article_ingestor_config")
     @patch("src.ingestion.article_ingestor.utc_now_checkpoint_token")
     def test_init_with_defaults(self, mock_run_timestamp, mock_load_config, mock_client_class):
-        """__init__: constructor creates dependencies and caches resolved config state."""
+        """__init__: constructor creates dependencies and keeps config-backed state available."""
         mock_client = Mock()
         mock_client_class.return_value = mock_client
         mock_run_timestamp.return_value = "20260428T010203Z"
@@ -87,33 +87,15 @@ class TestArticleIngestorInit(unittest.TestCase):
         mock_load_config.assert_called_once_with()
 
 
-class TestArticleIngestorLoadConfig(unittest.TestCase):
-    """This class tests load_config."""
-
-    def test_load_config_uses_settings_loader(self):
-        """load_config: Settings loader is called for ingestion config."""
-        article_ingestor = _build_article_ingestor()
-        with patch(
-            "src.ingestion.article_ingestor.Settings.load_article_ingestor_config",
-            return_value=_build_article_ingestor_config(
-                {"profiles": {"technology_daily": {"topic": "technology"}}}
-            ),
-        ) as mock_load_config:
-            result = article_ingestor.load_config()
-
-        self.assertEqual(result.profile_names, ["technology_daily"])
-        mock_load_config.assert_called_once_with()
-
-
-class TestArticleIngestorResolveProfilesToRun(unittest.TestCase):
-    """This class tests _resolve_profiles_to_run."""
+class TestArticleIngestorProfilesToRun(unittest.TestCase):
+    """This class tests profiles_to_run."""
 
     def setUp(self):
         self.article_ingestor = _build_article_ingestor()
 
-    def test_resolve_profiles_defaults_to_all_profiles(self):
-        """_resolve_profiles_to_run: returns all profiles when selection is absent."""
-        config = _build_article_ingestor_config(
+    def test_profiles_to_run_returns_all_profiles_when_selection_is_absent(self):
+        """profiles_to_run: returns all profiles when selection is absent."""
+        self.article_ingestor.config = _build_article_ingestor_config(
             {
                 "profiles": {
                     "technology_daily": {"topic": "technology"},
@@ -121,12 +103,14 @@ class TestArticleIngestorResolveProfilesToRun(unittest.TestCase):
                 }
             }
         )
-        resolved = self.article_ingestor._resolve_profiles_to_run(config)  # pylint: disable=protected-access
-        self.assertEqual(resolved, ["technology_daily", "science_daily"])
+        self.assertEqual(
+            self.article_ingestor.profiles_to_run,
+            ["technology_daily", "science_daily"],
+        )
 
-    def test_resolve_profiles_returns_selected_profiles(self):
-        """_resolve_profiles_to_run: returns selected profile names."""
-        config = _build_article_ingestor_config(
+    def test_profiles_to_run_returns_selected_profiles(self):
+        """profiles_to_run: returns selected profile names."""
+        self.article_ingestor.config = _build_article_ingestor_config(
             {
                 "profiles": {
                     "technology_daily": {"topic": "technology"},
@@ -135,8 +119,18 @@ class TestArticleIngestorResolveProfilesToRun(unittest.TestCase):
                 "article_ingestor": {"profiles_to_run": ["science_daily"]},
             }
         )
-        resolved = self.article_ingestor._resolve_profiles_to_run(config)  # pylint: disable=protected-access
-        self.assertEqual(resolved, ["science_daily"])
+        self.assertEqual(self.article_ingestor.profiles_to_run, ["science_daily"])
+
+    def test_profiles_to_run_returns_new_list_each_time(self):
+        """profiles_to_run: returns a copy so callers cannot mutate config state."""
+        profiles_to_run = self.article_ingestor.profiles_to_run
+        profiles_to_run.append("mutated")
+
+        self.assertEqual(
+            self.article_ingestor.profiles_to_run,
+            ["technology_daily", "science_daily"],
+        )
+
 
 class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
     """This class tests collect_profile_articles."""
@@ -170,69 +164,63 @@ class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
         self.assertEqual(result["failures"][1]["error"], "Missing id in topic search result")
 
 
-class TestArticleIngestorResolveLimit(unittest.TestCase):
-    """This class tests _resolve_limit."""
+class TestArticleIngestorResolvedLimit(unittest.TestCase):
+    """This class tests resolved_limit."""
 
     def setUp(self):
         self.article_ingestor = _build_article_ingestor()
 
-    def test_resolve_limit_handles_none_mapping_and_missing_value(self):
-        """_resolve_limit: returns None when config or limit value is missing."""
-        self.assertIsNone(
-            self.article_ingestor._resolve_limit(  # pylint: disable=protected-access
-                config=_build_article_ingestor_config(
-                    {
-                        "profiles": {"technology_daily": {"topic": "technology"}},
-                        "article_ingestor": {"save_local_checkpoint": False},
-                    }
-                )
-            )
+    def test_resolved_limit_returns_none_when_value_is_missing(self):
+        """resolved_limit: returns None when limit value is missing."""
+        self.article_ingestor.config = _build_article_ingestor_config(
+            {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"save_local_checkpoint": False},
+            }
         )
+        self.assertIsNone(self.article_ingestor.resolved_limit)
+
+    def test_resolved_limit_returns_configured_value(self):
+        """resolved_limit: returns configured limit value."""
         self.assertEqual(
-            self.article_ingestor._resolve_limit(  # pylint: disable=protected-access
-                config=_build_article_ingestor_config(
-                    {
-                        "profiles": {"technology_daily": {"topic": "technology"}},
-                        "article_ingestor": {"limit_per_profile": 4},
-                    }
-                )
-            ),
+            _build_article_ingestor(
+                {
+                    "profiles": {"technology_daily": {"topic": "technology"}},
+                    "article_ingestor": {"limit_per_profile": 4},
+                }
+            ).resolved_limit,
             4,
         )
 
 
-class TestArticleIngestorResolveCheckpointDirectory(unittest.TestCase):
-    """This class tests _resolve_checkpoint_directory."""
+class TestArticleIngestorCheckpointDirectory(unittest.TestCase):
+    """This class tests checkpoint_directory."""
 
     def setUp(self):
         self.article_ingestor = _build_article_ingestor()
 
-    def test_resolve_checkpoint_directory_returns_none_by_default(self):
-        """_resolve_checkpoint_directory: defaults to no checkpointing."""
-        result = self.article_ingestor._resolve_checkpoint_directory(  # pylint: disable=protected-access
-            config=_build_article_ingestor_config(
-                {
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {"save_local_checkpoint": False},
-                }
-            )
+    def test_checkpoint_directory_returns_none_by_default(self):
+        """checkpoint_directory: defaults to no checkpointing."""
+        self.article_ingestor.config = _build_article_ingestor_config(
+            {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"save_local_checkpoint": False},
+            }
         )
-        self.assertIsNone(result)
+        self.assertIsNone(self.article_ingestor.checkpoint_directory)
 
-    def test_resolve_checkpoint_directory_validates_and_resolves_directory(self):
-        """_resolve_checkpoint_directory: validates config and resolves path."""
-        result = self.article_ingestor._resolve_checkpoint_directory(  # pylint: disable=protected-access
-            config=_build_article_ingestor_config(
-                {
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {
-                        "save_local_checkpoint": True,
-                        "checkpoint_dir": "checkpoints/custom",
-                    },
-                }
-            )
+    def test_checkpoint_directory_returns_configured_directory(self):
+        """checkpoint_directory: returns configured directory."""
+        self.article_ingestor.config = _build_article_ingestor_config(
+            {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {
+                    "save_local_checkpoint": True,
+                    "checkpoint_dir": "checkpoints/custom",
+                },
+            }
         )
-        self.assertEqual(result, Path("checkpoints/custom"))
+        self.assertEqual(self.article_ingestor.checkpoint_directory, Path("checkpoints/custom"))
 
 
 class TestArticleIngestorWriteProfileCheckpoint(unittest.TestCase):
@@ -258,12 +246,22 @@ class TestArticleIngestorRun(unittest.TestCase):
 
     def test_run_happy_path_uses_limit_and_writes_checkpoints(self):
         """run: aggregates profiles and writes checkpoints when enabled."""
-        article_ingestor = _build_article_ingestor()
+        article_ingestor = _build_article_ingestor(
+            {
+                "profiles": {
+                    "technology_daily": {"topic": "technology"},
+                    "science_daily": {"topic": "science"},
+                },
+                "article_ingestor": {
+                    "profiles_to_run": ["technology_daily", "science_daily"],
+                    "limit_per_profile": 2,
+                    "save_local_checkpoint": True,
+                    "checkpoint_dir": "checkpoints/article_ingestor",
+                },
+            }
+        )
         client = Mock()
         article_ingestor.client = client
-        article_ingestor.profiles_to_run = ["technology_daily", "science_daily"]
-        article_ingestor.resolved_limit = 2
-        article_ingestor.checkpoint_directory = Path("checkpoints/article_ingestor")
         article_ingestor.run_timestamp = "20260428T010203Z"
         article_ingestor.collect_profile_articles = Mock(
             side_effect=[

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.config.settings import ArticleIngestorConfig, Settings
+from src.config.settings import Settings
 from src.ingestion.guardian_client import GuardianClient
 from src.utils.dates import utc_now_checkpoint_token
 
@@ -15,52 +15,23 @@ class ArticleIngestor:
     def __init__(self):
         """Initialize ingestion dependencies."""
         self.client = GuardianClient()
-        self.config = self.load_config()
-        self.profiles_to_run = self._resolve_profiles_to_run(self.config)
-        self.resolved_limit = self._resolve_limit(config=self.config)
-        self.checkpoint_directory = self._resolve_checkpoint_directory(config=self.config)
+        self.config = Settings.load_article_ingestor_config()
         self.run_timestamp = utc_now_checkpoint_token()
 
-    def load_config(self) -> ArticleIngestorConfig:
-        """Load validated ingestion configuration.
+    @property
+    def profiles_to_run(self) -> List[str]:
+        """Return the ordered profile names scheduled for ingestion."""
+        return list(self.config.profiles_to_run)
 
-        Returns:
-            ArticleIngestorConfig: Typed ingestion configuration.
-        """
-        return Settings.load_article_ingestor_config()
+    @property
+    def resolved_limit(self) -> Optional[int]:
+        """Return the optional per-profile item limit."""
+        return self.config.limit_per_profile
 
-    def _resolve_profiles_to_run(self, config: ArticleIngestorConfig) -> List[str]:
-        """Resolve profile names to ingest.
-
-        Parameters:
-            config: Typed ingestion configuration.
-
-        Returns:
-            List[str]: Ordered profile names that should be ingested.
-        """
-        return list(config.profiles_to_run)
-
-    def _resolve_limit(self, config: ArticleIngestorConfig) -> Optional[int]:
-        """Resolve optional per-profile item limit from config.
-
-        Parameters:
-            config: Typed ingestion configuration.
-
-        Returns:
-            Optional[int]: Limit resolved from YAML config or None.
-        """
-        return config.limit_per_profile
-
-    def _resolve_checkpoint_directory(self, config: ArticleIngestorConfig) -> Optional[Path]:
-        """Resolve optional local checkpoint directory from config.
-
-        Parameters:
-            config: Typed ingestion configuration.
-
-        Returns:
-            Optional[Path]: Directory path where checkpoints are written, or None.
-        """
-        return config.checkpoint_dir
+    @property
+    def checkpoint_directory(self) -> Optional[Path]:
+        """Return the optional local checkpoint directory."""
+        return self.config.checkpoint_dir
 
     def collect_profile_articles(self, profile: str, limit: Optional[int]) -> Dict[str, Any]:
         """Collect full article content for a configured profile.
