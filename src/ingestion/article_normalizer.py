@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, date
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
@@ -17,9 +17,11 @@ class ArticleNormalizer:
     """Normalize per-profile article checkpoints and write Parquet output.
 
     Configuration is read from ingestion YAML to determine checkpoint and parquet
-    directories. Set `article_ingestor.checkpoint_dir` and optionally
+    directories plus the row mapping rules used when converting checkpoint JSON
+    into tabular output. Set `article_ingestor.checkpoint_dir` and optionally
     `article_ingestor.parquet_dir` (defaults to `checkpoints/parquet`) in
-    `configuration/ingestion/ingestion_config.yaml`.
+    `configuration/ingestion/ingestion_config.yaml`. Row mappings are controlled
+    by `article_normalizer.row_mappings` in the same YAML file.
     """
 
     def __init__(self, configuration_root: Optional[Path] = None):
@@ -35,6 +37,7 @@ class ArticleNormalizer:
         )
         self._config = config
         article_cfg = config.get("article_ingestor", {}) or {}
+        self._row_mappings = self._resolve_row_mappings(config)
 
         checkpoint_dir = article_cfg.get("checkpoint_dir", "checkpoints/article_ingestor")
         parquet_dir = article_cfg.get("parquet_dir", "checkpoints/parquet")
@@ -46,6 +49,106 @@ class ArticleNormalizer:
         if not isinstance(profiles, dict):
             raise ValueError("ingestion config must contain a 'profiles' mapping")
         self.profiles = list(profiles.keys())
+
+    def _resolve_row_mappings(self, config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Resolve required row mapping rules from config."""
+        article_normalizer_cfg = config.get("article_normalizer")
+        if article_normalizer_cfg is None or not isinstance(article_normalizer_cfg, dict):
+            raise ValueError("ingestion config must contain an 'article_normalizer' mapping")
+
+        row_mappings = article_normalizer_cfg.get("row_mappings")
+        if not isinstance(row_mappings, dict) or not row_mappings:
+            raise ValueError("ingestion config must contain a non-empty 'row_mappings' mapping")
+
+        return row_mappings
+
+    @staticmethod
+    def _resolve_nested_value(source: Dict[str, Any], dotted_path: str) -> Any:
+        """Resolve a dotted path from a mapping."""
+        current: Any = source
+        for part in dotted_path.split("."):
+            if not isinstance(current, dict):
+                return None
+            current = current.get(part)
+            if current is None:
+                return None
+        return current
+
+    def _resolve_source_value(
+        self,
+        source_name: str,
+        context: Dict[str, Any],
+    ) -> Any:
+        """Resolve one configured source path for a row mapping."""
+        item = context["item"]
+        fields = context["fields"]
+        payload = context["payload"]
+        profile_value = context["profile_value"]
+        if source_name == "profile":
+            return profile_value
+        if source_name.startswith("payload."):
+            return self._resolve_nested_value(payload, source_name.split(".", 1)[1])
+        if source_name.startswith("fields."):
+            return self._resolve_nested_value(fields, source_name.split(".", 1)[1])
+        if source_name.startswith("item."):
+            return self._resolve_nested_value(item, source_name.split(".", 1)[1])
+
+        for source_mapping in (item, fields, payload):
+            if source_name in source_mapping:
+                return source_mapping.get(source_name)
+        return None
+
+    @staticmethod
+    def _first_non_empty(values: List[Any]) -> Any:
+        """Return the first value that is not None or an empty string."""
+        for value in values:
+            if value is None or value == "":
+                continue
+            return value
+        return None
+
+    def _apply_row_transform(self, value: Any, transform: Optional[str]) -> Any:
+        """Apply an optional row transform declared in YAML."""
+        if transform is None:
+            return value
+        if transform == "parse_iso":
+            if value is None:
+                return None
+            return self._parse_iso(str(value))
+        raise ValueError(f"Unsupported row mapping transform: {transform}")
+
+    def _build_row(
+        self,
+        payload: Dict[str, Any],
+        item: Dict[str, Any],
+        profile: Optional[str],
+    ) -> Dict[str, Any]:
+        """Build one normalized row using YAML-driven field mappings."""
+        fields = item.get("fields") or {}
+        context = {
+            "item": item,
+            "fields": fields,
+            "payload": payload,
+            "profile_value": profile or payload.get("profile"),
+        }
+        row: Dict[str, Any] = {}
+
+        for output_field, field_config in self._row_mappings.items():
+            sources = field_config.get("sources")
+            if not isinstance(sources, list) or not sources:
+                raise ValueError(
+                    f"Row mapping '{output_field}' must contain a non-empty 'sources' list"
+                )
+
+            resolved_values = [
+                self._resolve_source_value(source_name=str(source_name), context=context)
+                for source_name in sources
+            ]
+            value = self._first_non_empty(resolved_values)
+            value = self._apply_row_transform(value, field_config.get("transform"))
+            row[output_field] = value
+
+        return row
 
     def _parse_ts_from_filename(self, path: Path) -> Optional[datetime]:
         """Parse timestamp token from checkpoint filename.
@@ -144,29 +247,7 @@ class ArticleNormalizer:
         items = payload.get("items", []) or []
         rows = []
         for it in items:
-            fields = it.get("fields") or {}
-            row = {
-                "profile": profile or payload.get("profile"),
-                "api_id": it.get("id"),
-                "web_title": it.get("webTitle") or fields.get("headline"),
-                "headline": fields.get("headline"),
-                "byline": fields.get("byline"),
-                "section": it.get("sectionName"),
-                "published_at": self._parse_iso(it.get("webPublicationDate")),
-                "first_publication_date": self._parse_iso(
-                    fields.get("firstPublicationDate")
-                    or fields.get("firstPublicationDate")
-                ),
-                "url": it.get("webUrl"),
-                "body_text": fields.get("bodyText") or fields.get("body"),
-                "trail_text": fields.get("trailText"),
-                "thumbnail": fields.get("thumbnail"),
-                "wordcount": fields.get("wordcount"),
-                "pillar": it.get("pillarName"),
-                "last_modified": self._parse_iso(
-                    fields.get("lastModified") or it.get("lastModified")
-                ),
-            }
+            row = self._build_row(payload=payload, item=it, profile=profile)
             rows.append(row)
 
         if not rows:

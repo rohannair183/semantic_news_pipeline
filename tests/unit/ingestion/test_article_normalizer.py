@@ -10,18 +10,18 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from src.ingestion.article_normalizer import ArticleNormalizer
-from tests.unit.ingestion.test_config_helpers import build_ingestion_config
+from tests.unit.ingestion.test_config_helpers import (
+    NORMALIZER_ROW_MAPPINGS,
+    build_normalizer_config,
+)
 
 
 def _build_article_normalizer(config_root: Path) -> ArticleNormalizer:
     with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
         mock_parser = Mock()
-        mock_parser.parse.return_value = build_ingestion_config(
-            save_local_checkpoint=False,
+        mock_parser.parse.return_value = build_normalizer_config(
             checkpoint_dir=str(config_root / "checkpoints"),
-        )
-        mock_parser.parse.return_value["article_ingestor"]["parquet_dir"] = str(
-            config_root / "parquet"
+            parquet_dir=str(config_root / "parquet"),
         )
         mock_parser_class.return_value = mock_parser
         return ArticleNormalizer(configuration_root=config_root)
@@ -43,7 +43,10 @@ class TestArticleNormalizerInit(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
-                mock_parser.parse.return_value = {"profiles": "not a dict"}
+                mock_parser.parse.return_value = {
+                    "profiles": "not a dict",
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
+                }
                 mock_parser_class.return_value = mock_parser
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
@@ -56,10 +59,63 @@ class TestArticleNormalizerInit(unittest.TestCase):
                 mock_parser.parse.return_value = {
                     "profiles": {"test": {}},
                     "article_ingestor": {"checkpoint_dir": str(Path(tmpdir) / "check")},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=Path(tmpdir))
                 self.assertIn("parquet", str(normalizer.parquet_dir))
+
+    def test_init_rejects_invalid_article_normalizer_config(self):
+        """__init__: raises ValueError if article_normalizer is not a mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
+                mock_parser = Mock()
+                mock_parser.parse.return_value = {
+                    "profiles": {"test": {}},
+                    "article_normalizer": [],
+                }
+                mock_parser_class.return_value = mock_parser
+                with self.assertRaises(ValueError):
+                    ArticleNormalizer(configuration_root=Path(tmpdir))
+
+    def test_init_rejects_null_article_normalizer_config(self):
+        """__init__: raises ValueError if article_normalizer is null."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
+                mock_parser = Mock()
+                mock_parser.parse.return_value = {
+                    "profiles": {"test": {}},
+                    "article_normalizer": None,
+                }
+                mock_parser_class.return_value = mock_parser
+                with self.assertRaises(ValueError):
+                    ArticleNormalizer(configuration_root=Path(tmpdir))
+
+    def test_init_rejects_missing_row_mappings(self):
+        """__init__: raises ValueError if row_mappings are missing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
+                mock_parser = Mock()
+                mock_parser.parse.return_value = {
+                    "profiles": {"test": {}},
+                    "article_normalizer": {},
+                }
+                mock_parser_class.return_value = mock_parser
+                with self.assertRaises(ValueError):
+                    ArticleNormalizer(configuration_root=Path(tmpdir))
+
+    def test_init_rejects_empty_row_mappings(self):
+        """__init__: raises ValueError if row_mappings is empty."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
+                mock_parser = Mock()
+                mock_parser.parse.return_value = {
+                    "profiles": {"test": {}},
+                    "article_normalizer": {"row_mappings": {}},
+                }
+                mock_parser_class.return_value = mock_parser
+                with self.assertRaises(ValueError):
+                    ArticleNormalizer(configuration_root=Path(tmpdir))
 
 
 class TestArticleNormalizerParseTS(unittest.TestCase):
@@ -110,6 +166,7 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
                 mock_parser.parse.return_value = {
                     "profiles": {"tech_daily": {}, "science_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -131,6 +188,7 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
                 mock_parser.parse.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -171,6 +229,60 @@ class TestArticleNormalizerParseISO(unittest.TestCase):
         self.assertIsNone(ArticleNormalizer._parse_iso(""))  # pylint: disable=protected-access
 
 
+class TestArticleNormalizerRowMappingHelpers(unittest.TestCase):
+    """This class tests the row mapping helper methods."""
+
+    def setUp(self):
+        self.normalizer = _build_article_normalizer(Path(tempfile.mkdtemp()))
+
+    def test_resolve_nested_value_returns_none_for_scalar_path(self):
+        """_resolve_nested_value: returns None when a path walks into a scalar."""
+        result = ArticleNormalizer._resolve_nested_value(  # pylint: disable=protected-access
+            {"outer": "value"},
+            "outer.inner",
+        )
+        self.assertIsNone(result)
+
+    def test_resolve_source_value_supports_item_nested_path(self):
+        """_resolve_source_value: resolves nested item paths."""
+        context = {
+            "item": {"fields": {"headline": "Nested Headline"}},
+            "fields": {},
+            "payload": {},
+            "profile_value": "test_profile",
+        }
+        result = self.normalizer._resolve_source_value(  # pylint: disable=protected-access
+            source_name="item.fields.headline",
+            context=context,
+        )
+        self.assertEqual(result, "Nested Headline")
+
+    def test_first_non_empty_skips_blank_values(self):
+        """_first_non_empty: skips None and blank strings before returning a value."""
+        result = ArticleNormalizer._first_non_empty(  # pylint: disable=protected-access
+            [None, "", "chosen", "later"]
+        )
+        self.assertEqual(result, "chosen")
+
+    def test_apply_row_transform_rejects_unknown_transform(self):
+        """_apply_row_transform: raises ValueError for unsupported transforms."""
+        with self.assertRaises(ValueError):
+            self.normalizer._apply_row_transform(  # pylint: disable=protected-access
+                value="2026-04-28T10:00:00Z",
+                transform="unknown",
+            )
+
+    def test_build_row_rejects_empty_sources(self):
+        """_build_row: raises ValueError when a mapping has no sources."""
+        self.normalizer._row_mappings = {"headline": {"sources": []}}  # pylint: disable=protected-access
+        with self.assertRaises(ValueError):
+            self.normalizer._build_row(  # pylint: disable=protected-access
+                payload={"profile": "test_profile"},
+                item={"fields": {}},
+                profile=None,
+            )
+
+
 class TestArticleNormalizerFindLatest(unittest.TestCase):
     """This class tests find_latest_checkpoints_for_date."""
 
@@ -191,6 +303,7 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
                 mock_parser.parse.return_value = {
                     "profiles": {"tech_daily": {}, "science_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -216,6 +329,7 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
                 mock_parser.parse.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -238,6 +352,7 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
                     "profiles": {"tech_daily": {}},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                 }
                 mock_parser_class.return_value = mock_parser
@@ -292,6 +407,47 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
             self.assertEqual(df.iloc[0]["api_id"], "article-1")
             self.assertEqual(df.iloc[0]["headline"], "Test Headline")
             self.assertEqual(df.iloc[0]["profile"], "test_profile")
+
+    def test_normalize_checkpoint_uses_yaml_row_mapping_override(self):
+        """normalize_checkpoint: respects YAML row mapping overrides."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            checkpoint_file = tmppath / "test_checkpoint.json"
+
+            checkpoint_data = {
+                "profile": "test_profile",
+                "items": [
+                    {
+                        "id": "article-1",
+                        "webTitle": "Wrong Title",
+                        "fields": {
+                            "headline": "Preferred Title",
+                            "firstPublicationDate": "2026-04-28T10:10:00Z",
+                        },
+                    }
+                ],
+            }
+
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
+                json.dump(checkpoint_data, f)
+
+            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
+                mock_parser = Mock()
+                config = build_normalizer_config(
+                    checkpoint_dir=str(tmppath / "checkpoints"),
+                    parquet_dir=str(tmppath / "parquet"),
+                )
+                config["article_normalizer"]["row_mappings"]["web_title"]["sources"] = [
+                    "fields.headline"
+                ]
+                mock_parser.parse.return_value = config
+                mock_parser_class.return_value = mock_parser
+                normalizer = ArticleNormalizer(configuration_root=tmppath)
+
+                df = normalizer.normalize_checkpoint(checkpoint_file)
+
+                self.assertEqual(df.iloc[0]["web_title"], "Preferred Title")
+                self.assertEqual(df.iloc[0]["first_publication_date"].year, 2026)
 
     def test_normalize_checkpoint_override_profile(self):
         """normalize_checkpoint: allows profile override."""
@@ -363,6 +519,7 @@ class TestArticleNormalizerWriteParquet(unittest.TestCase):
                 mock_parser.parse.return_value = {
                     "profiles": {"tech": {}},
                     "article_ingestor": {"parquet_dir": str(parquet_dir)},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -413,6 +570,7 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                         "checkpoint_dir": str(checkpoint_dir),
                         "parquet_dir": str(parquet_dir),
                     },
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -434,6 +592,7 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                 mock_parser.parse.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -467,6 +626,7 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                         "checkpoint_dir": str(checkpoint_dir),
                         "parquet_dir": str(tmppath / "parquet"),
                     },
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
