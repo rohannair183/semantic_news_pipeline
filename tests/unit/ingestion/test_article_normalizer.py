@@ -6,7 +6,7 @@ import unittest
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
-from unittest.mock import patch
+from unittest.mock import PropertyMock, patch
 
 import pandas as pd
 
@@ -55,12 +55,16 @@ class TestArticleNormalizerInit(unittest.TestCase):
     """This class tests __init__."""
 
     def test_init_loads_config(self):
-        """__init__: loads ingestion config and resolves paths."""
+        """__init__: loads ingestion config and exposes config-backed properties."""
         with tempfile.TemporaryDirectory() as tmpdir:
             normalizer = _build_article_normalizer(Path(tmpdir))
             self.assertEqual(normalizer.profiles, ["technology_daily", "science_daily"])
             self.assertIsInstance(normalizer.checkpoint_dir, Path)
             self.assertIsInstance(normalizer.parquet_dir, Path)
+            self.assertEqual(
+                set(normalizer.row_mappings.keys()),
+                set(NORMALIZER_ROW_MAPPINGS.keys()),
+            )
 
     def test_init_raises_for_invalid_profiles(self):
         """__init__: raises ValueError if profiles is not a dict."""
@@ -83,9 +87,11 @@ class TestArticleNormalizerInit(unittest.TestCase):
                 mock_load_config.return_value = _build_article_normalizer_config(
                     Path(tmpdir),
                     {
-                    "profiles": {"test": {}},
-                    "article_ingestor": {"checkpoint_dir": str(Path(tmpdir) / "check")},
-                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
+                        "profiles": {"test": {}},
+                        "article_ingestor": {"checkpoint_dir": str(Path(tmpdir) / "check")},
+                        "article_normalizer": {
+                            "row_mappings": NORMALIZER_ROW_MAPPINGS.copy()
+                        },
                     },
                 )
                 normalizer = ArticleNormalizer(configuration_root=Path(tmpdir))
@@ -191,9 +197,11 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
                 mock_load_config.return_value = _build_article_normalizer_config(
                     tmppath,
                     {
-                    "profiles": {"tech_daily": {}, "science_daily": {}},
-                    "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
-                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
+                        "profiles": {"tech_daily": {}, "science_daily": {}},
+                        "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                        "article_normalizer": {
+                            "row_mappings": NORMALIZER_ROW_MAPPINGS.copy()
+                        },
                     },
                 )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -216,9 +224,11 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
                 mock_load_config.return_value = _build_article_normalizer_config(
                     tmppath,
                     {
-                    "profiles": {"tech_daily": {}},
-                    "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
-                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
+                        "profiles": {"tech_daily": {}},
+                        "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                        "article_normalizer": {
+                            "row_mappings": NORMALIZER_ROW_MAPPINGS.copy()
+                        },
                     },
                 )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
@@ -308,14 +318,40 @@ class TestArticleNormalizerRowMappingHelpers(unittest.TestCase):
 
     def test_build_row_rejects_empty_sources(self):
         """_build_row: raises ValueError when a mapping has no sources."""
-        self.normalizer._row_mappings = {  # pylint: disable=protected-access
-            "headline": ArticleRowMappingConfig(sources=[]),
-        }
-        with self.assertRaises(ValueError):
-            self.normalizer._build_row(  # pylint: disable=protected-access
-                payload={"profile": "test_profile"},
-                item={"fields": {}},
-                profile=None,
+        with patch.object(
+            ArticleNormalizer,
+            "row_mappings",
+            new_callable=PropertyMock,
+            return_value={"headline": ArticleRowMappingConfig(sources=[])},
+        ):
+            with self.assertRaises(ValueError):
+                self.normalizer._build_row(  # pylint: disable=protected-access
+                    payload={"profile": "test_profile"},
+                    item={"fields": {}},
+                    profile=None,
+                )
+
+
+class TestArticleNormalizerProperties(unittest.TestCase):
+    """This class tests the config-backed properties."""
+
+    def test_profiles_returns_new_list_each_time(self):
+        """profiles: returns a copy so callers cannot mutate config state."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            normalizer = _build_article_normalizer(Path(tmpdir))
+            profiles = normalizer.profiles
+            profiles.append("mutated")
+
+            self.assertEqual(normalizer.profiles, ["technology_daily", "science_daily"])
+
+    def test_row_mappings_returns_configured_mapping(self):
+        """row_mappings: returns the configured row mappings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            normalizer = _build_article_normalizer(Path(tmpdir))
+
+            self.assertEqual(
+                set(normalizer.row_mappings.keys()),
+                set(NORMALIZER_ROW_MAPPINGS.keys()),
             )
 
 

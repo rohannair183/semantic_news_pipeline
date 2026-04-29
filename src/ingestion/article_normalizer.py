@@ -10,7 +10,6 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from src.config.settings import (
-    ArticleNormalizerConfig,
     ArticleRowMappingConfig,
     ArticleRowSourceConfig,
     Settings,
@@ -42,27 +41,29 @@ class ArticleNormalizer:
         Parameters:
             configuration_root: Root directory for config files. If None, auto-resolved.
         """
-        config = Settings.load_article_normalizer_config(configuration_root=configuration_root)
-        self._config = config
-        self._row_mappings = self._resolve_row_mappings(config)
+        self._config = Settings.load_article_normalizer_config(
+            configuration_root=configuration_root
+        )
 
-        self.checkpoint_dir = config.checkpoint_dir
-        self.parquet_dir = config.parquet_dir
-        self.profiles = list(config.profile_names)
+    @property
+    def checkpoint_dir(self) -> Path:
+        """Return the configured checkpoint directory."""
+        return self._config.checkpoint_dir
 
-    def _resolve_row_mappings(
-        self,
-        config: ArticleNormalizerConfig,
-    ) -> Dict[str, ArticleRowMappingConfig]:
-        """Resolve required row mapping rules from config.
+    @property
+    def parquet_dir(self) -> Path:
+        """Return the configured parquet output directory."""
+        return self._config.parquet_dir
 
-        Parameters:
-            config: Typed ingestion configuration.
+    @property
+    def profiles(self) -> List[str]:
+        """Return the ordered profile names available for normalization."""
+        return list(self._config.profile_names)
 
-        Returns:
-            Row mappings dict from article_normalizer.row_mappings in config.
-        """
-        return config.row_mappings
+    @property
+    def row_mappings(self) -> Dict[str, ArticleRowMappingConfig]:
+        """Return the configured row mapping rules."""
+        return self._config.row_mappings
 
     @staticmethod
     def _resolve_nested_value(source: Dict[str, Any], dotted_path: str) -> Any:
@@ -180,7 +181,7 @@ class ArticleNormalizer:
         }
         row: Dict[str, Any] = {}
 
-        for output_field, field_config in self._row_mappings.items():
+        for output_field, field_config in self.row_mappings.items():
             if not field_config.sources:
                 raise ValueError(
                     f"Row mapping '{output_field}' must contain a non-empty 'sources' list"
