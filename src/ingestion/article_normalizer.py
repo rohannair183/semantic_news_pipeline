@@ -51,7 +51,14 @@ class ArticleNormalizer:
         self.profiles = list(profiles.keys())
 
     def _resolve_row_mappings(self, config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """Resolve required row mapping rules from config."""
+        """Resolve required row mapping rules from config.
+
+        Parameters:
+            config: Full ingestion configuration dict.
+
+        Returns:
+            Row mappings dict from article_normalizer.row_mappings in config.
+        """
         article_normalizer_cfg = config.get("article_normalizer")
         if article_normalizer_cfg is None or not isinstance(article_normalizer_cfg, dict):
             raise ValueError("ingestion config must contain an 'article_normalizer' mapping")
@@ -64,7 +71,15 @@ class ArticleNormalizer:
 
     @staticmethod
     def _resolve_nested_value(source: Dict[str, Any], dotted_path: str) -> Any:
-        """Resolve a dotted path from a mapping."""
+        """Resolve a dotted path from a mapping.
+
+        Parameters:
+            source: Source dict to traverse.
+            dotted_path: Dot-separated path (e.g., 'fields.headline').
+
+        Returns:
+            Value at the path or None if not found or path is invalid.
+        """
         current: Any = source
         for part in dotted_path.split("."):
             if not isinstance(current, dict):
@@ -79,7 +94,16 @@ class ArticleNormalizer:
         source_name: str,
         context: Dict[str, Any],
     ) -> Any:
-        """Resolve one configured source path for a row mapping."""
+        """Resolve one configured source path for a row mapping.
+
+        Parameters:
+            source_name: Source name from YAML (e.g., 'profile', 'payload.profile',
+                'item.headline').
+            context: Dict with keys 'item', 'fields', 'payload', 'profile_value'.
+
+        Returns:
+            Resolved value from the source path or None if not found.
+        """
         item = context["item"]
         fields = context["fields"]
         payload = context["payload"]
@@ -100,7 +124,14 @@ class ArticleNormalizer:
 
     @staticmethod
     def _first_non_empty(values: List[Any]) -> Any:
-        """Return the first value that is not None or an empty string."""
+        """Return the first value that is not None or an empty string.
+
+        Parameters:
+            values: List of values to search.
+
+        Returns:
+            First non-None, non-empty value or None if all values are empty.
+        """
         for value in values:
             if value is None or value == "":
                 continue
@@ -108,7 +139,15 @@ class ArticleNormalizer:
         return None
 
     def _apply_row_transform(self, value: Any, transform: Optional[str]) -> Any:
-        """Apply an optional row transform declared in YAML."""
+        """Apply an optional row transform declared in YAML.
+
+        Parameters:
+            value: Value to transform.
+            transform: Transform type or None. Supported: 'parse_iso' (parse ISO 8601 datetime).
+
+        Returns:
+            Transformed value or original value if transform is None.
+        """
         if transform is None:
             return value
         if transform == "parse_iso":
@@ -123,7 +162,16 @@ class ArticleNormalizer:
         item: Dict[str, Any],
         profile: Optional[str],
     ) -> Dict[str, Any]:
-        """Build one normalized row using YAML-driven field mappings."""
+        """Build one normalized row using YAML-driven field mappings.
+
+        Parameters:
+            payload: Guardian API response payload dict.
+            item: Article item from payload.items.
+            profile: Profile name to use in output row, or None to use payload profile.
+
+        Returns:
+            Row dict with keys from article_normalizer.row_mappings and resolved values.
+        """
         fields = item.get("fields") or {}
         context = {
             "item": item,
