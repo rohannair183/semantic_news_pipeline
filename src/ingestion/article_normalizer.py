@@ -9,7 +9,14 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from src.config.settings import ArticleNormalizerConfig, Settings
+from src.config.settings import (
+    ArticleNormalizerConfig,
+    ArticleRowMappingConfig,
+    ArticleRowSourceConfig,
+    Settings,
+)
+from src.enums.article_row_source_kind import ArticleRowSourceKind
+from src.enums.article_row_transform import ArticleRowTransform
 from src.utils.dates import (
     format_day_compact,
     format_day_iso,
@@ -46,7 +53,7 @@ class ArticleNormalizer:
     def _resolve_row_mappings(
         self,
         config: ArticleNormalizerConfig,
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> Dict[str, ArticleRowMappingConfig]:
         """Resolve required row mapping rules from config.
 
         Parameters:
@@ -79,14 +86,13 @@ class ArticleNormalizer:
 
     def _resolve_source_value(
         self,
-        source_name: str,
+        source_config: ArticleRowSourceConfig,
         context: Dict[str, Any],
     ) -> Any:
         """Resolve one configured source path for a row mapping.
 
         Parameters:
-            source_name: Source name from YAML (e.g., 'profile', 'payload.profile',
-                'item.headline').
+            source_config: Typed source selector parsed from YAML.
             context: Dict with keys 'item', 'fields', 'payload', 'profile_value'.
 
         Returns:
@@ -96,15 +102,16 @@ class ArticleNormalizer:
         fields = context["fields"]
         payload = context["payload"]
         profile_value = context["profile_value"]
-        if source_name == "profile":
+        if source_config.kind == ArticleRowSourceKind.PROFILE:
             return profile_value
-        if source_name.startswith("payload."):
-            return self._resolve_nested_value(payload, source_name.split(".", 1)[1])
-        if source_name.startswith("fields."):
-            return self._resolve_nested_value(fields, source_name.split(".", 1)[1])
-        if source_name.startswith("item."):
-            return self._resolve_nested_value(item, source_name.split(".", 1)[1])
+        if source_config.kind == ArticleRowSourceKind.PAYLOAD:
+            return self._resolve_nested_value(payload, str(source_config.path))
+        if source_config.kind == ArticleRowSourceKind.FIELDS:
+            return self._resolve_nested_value(fields, str(source_config.path))
+        if source_config.kind == ArticleRowSourceKind.ITEM:
+            return self._resolve_nested_value(item, str(source_config.path))
 
+        source_name = str(source_config.path)
         for source_mapping in (item, fields, payload):
             if source_name in source_mapping:
                 return source_mapping.get(source_name)
@@ -126,19 +133,23 @@ class ArticleNormalizer:
             return value
         return None
 
-    def _apply_row_transform(self, value: Any, transform: Optional[str]) -> Any:
+    def _apply_row_transform(
+        self,
+        value: Any,
+        transform: Optional[ArticleRowTransform],
+    ) -> Any:
         """Apply an optional row transform declared in YAML.
 
         Parameters:
             value: Value to transform.
-            transform: Transform type or None. Supported: 'parse_iso' (parse ISO 8601 datetime).
+            transform: Transform type or None.
 
         Returns:
             Transformed value or original value if transform is None.
         """
         if transform is None:
             return value
-        if transform == "parse_iso":
+        if transform == ArticleRowTransform.PARSE_ISO:
             if value is None:
                 return None
             return self._parse_iso(str(value))
@@ -170,18 +181,17 @@ class ArticleNormalizer:
         row: Dict[str, Any] = {}
 
         for output_field, field_config in self._row_mappings.items():
-            sources = field_config.get("sources")
-            if not isinstance(sources, list) or not sources:
+            if not field_config.sources:
                 raise ValueError(
                     f"Row mapping '{output_field}' must contain a non-empty 'sources' list"
                 )
 
             resolved_values = [
-                self._resolve_source_value(source_name=str(source_name), context=context)
-                for source_name in sources
+                self._resolve_source_value(source_config=source_config, context=context)
+                for source_config in field_config.sources
             ]
             value = self._first_non_empty(resolved_values)
-            value = self._apply_row_transform(value, field_config.get("transform"))
+            value = self._apply_row_transform(value, field_config.transform)
             row[output_field] = value
 
         return row

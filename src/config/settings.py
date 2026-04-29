@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
 
 from src.config.yaml_config_parser import YAMLConfigParser
+from src.enums.article_row_source_kind import ArticleRowSourceKind
+from src.enums.article_row_transform import ArticleRowTransform
+from src.enums.guardian_order_by import GuardianOrderBy
 from src.enums.yaml_config_type import YAMLConfigType
+from src.utils.dates import coerce_day
 
 
 @dataclass(frozen=True)
@@ -149,6 +154,33 @@ class Settings:
         )
 
     @classmethod
+    def load_guardian_profile_configs(
+        cls,
+        configuration_root: Optional[Path] = None,
+    ) -> dict[str, GuardianProfileConfig]:
+        """Load and validate typed Guardian search profile configuration."""
+        config_values = (
+            cls.load_ingestion_config()
+            if configuration_root is None
+            else cls.load_ingestion_config_from_root(configuration_root)
+        )
+        profile_values = config_values.get("profiles")
+        if not isinstance(profile_values, dict) or not profile_values:
+            raise ValueError("Ingestion config must define a non-empty 'profiles' mapping")
+        default_page_size, max_page_size = cls._load_page_size_settings(config_values)
+
+        resolved_profiles: dict[str, GuardianProfileConfig] = {}
+        for raw_profile_name, raw_profile in profile_values.items():
+            profile_name = str(raw_profile_name)
+            resolved_profiles[profile_name] = cls._build_guardian_profile_config(
+                profile_name=profile_name,
+                raw_profile=raw_profile,
+                default_page_size=default_page_size,
+                max_page_size=max_page_size,
+            )
+        return resolved_profiles
+
+    @classmethod
     def load_article_normalizer_config(
         cls,
         configuration_root: Optional[Path] = None,
@@ -170,9 +202,7 @@ class Settings:
             section_name="article_normalizer",
         )
 
-        row_mappings = article_normalizer_config.get("row_mappings")
-        if not isinstance(row_mappings, dict) or not row_mappings:
-            raise ValueError("Ingestion config must contain a non-empty 'row_mappings' mapping")
+        row_mappings = cls._load_row_mappings(article_normalizer_config.get("row_mappings"))
 
         checkpoint_dir = Path(
             str(
@@ -243,6 +273,170 @@ class Settings:
             raise ValueError(f"Ingestion config field '{field_name}' must be >= 1")
         return resolved_value
 
+    @classmethod
+    def _build_guardian_profile_config(
+        cls,
+        profile_name: str,
+        raw_profile: Any,
+        default_page_size: int,
+        max_page_size: int,
+    ) -> GuardianProfileConfig:
+        if not isinstance(raw_profile, dict):
+            raise ValueError(f"Profile '{profile_name}' must be a mapping")
+
+        topic = raw_profile.get("topic")
+        if not topic:
+            raise ValueError(f"Profile '{profile_name}' is missing required 'topic'")
+
+        raw_page_size = raw_profile.get("page_size", default_page_size)
+        page_size = cls._validate_page_size(
+            page_size=int(raw_page_size),
+            max_page_size=max_page_size,
+        )
+
+        extra_filters = raw_profile.get("extra_filters", {})
+        if extra_filters is None:
+            extra_filters = {}
+        if not isinstance(extra_filters, dict):
+            raise ValueError(f"Profile '{profile_name}' field 'extra_filters' must be a mapping")
+
+        use_next_fallback = raw_profile.get("use_next_fallback", True)
+        if not isinstance(use_next_fallback, bool):
+            raise ValueError(
+                f"Profile '{profile_name}' field 'use_next_fallback' must be a boolean"
+            )
+
+        raw_order_by = raw_profile.get("order_by", GuardianOrderBy.NEWEST.value)
+        try:
+            order_by = GuardianOrderBy.from_value(str(raw_order_by))
+        except ValueError as exc:
+            raise ValueError(f"Profile '{profile_name}' field 'order_by': {exc}") from exc
+
+        raw_run_date = raw_profile.get("run_date")
+        resolved_run_date = (
+            None if raw_run_date is None else cls._coerce_profile_run_date(raw_run_date)
+        )
+
+        return GuardianProfileConfig(
+            topic=str(topic),
+            run_date=resolved_run_date,
+            page_size=page_size,
+            query=None if raw_profile.get("query") is None else str(raw_profile.get("query")),
+            extra_filters=dict(extra_filters),
+            order_by=order_by,
+            use_next_fallback=use_next_fallback,
+        )
+
+    @staticmethod
+    def _coerce_profile_run_date(raw_run_date: Any) -> date:
+        return coerce_day(raw_run_date)
+
+    @staticmethod
+    def _validate_page_size(page_size: int, max_page_size: int) -> int:
+        if page_size < 1 or page_size > max_page_size:
+            raise ValueError(f"page_size must be between 1 and {max_page_size}")
+        return page_size
+
+    @staticmethod
+    def _load_page_size_settings(config_values: dict[str, Any]) -> tuple[int, int]:
+        default_page_size = int(cast(Any, config_values.get("default_page_size")))
+        max_page_size = int(cast(Any, config_values.get("max_page_size")))
+        if default_page_size < 1:
+            raise ValueError("default_page_size must be >= 1")
+        if max_page_size < 1:
+            raise ValueError("max_page_size must be >= 1")
+        if default_page_size > max_page_size:
+            raise ValueError("default_page_size must be <= max_page_size")
+        return default_page_size, max_page_size
+
+    @classmethod
+    def _load_row_mappings(
+        cls,
+        row_mappings: Any,
+    ) -> dict[str, ArticleRowMappingConfig]:
+        if not isinstance(row_mappings, dict) or not row_mappings:
+            raise ValueError("Ingestion config must contain a non-empty 'row_mappings' mapping")
+
+        resolved_row_mappings: dict[str, ArticleRowMappingConfig] = {}
+        for raw_output_field, raw_field_config in row_mappings.items():
+            output_field = str(raw_output_field)
+            if not isinstance(raw_field_config, dict):
+                raise ValueError(f"Row mapping '{output_field}' must be a mapping")
+
+            raw_sources = raw_field_config.get("sources")
+            if not isinstance(raw_sources, list) or not raw_sources:
+                raise ValueError(
+                    f"Row mapping '{output_field}' must contain a non-empty 'sources' list"
+                )
+
+            sources = [
+                cls._parse_row_source_config(output_field=output_field, raw_source=raw_source)
+                for raw_source in raw_sources
+            ]
+            transform = cls._parse_row_transform(
+                output_field=output_field,
+                raw_transform=raw_field_config.get("transform"),
+            )
+            resolved_row_mappings[output_field] = ArticleRowMappingConfig(
+                sources=sources,
+                transform=transform,
+            )
+        return resolved_row_mappings
+
+    @staticmethod
+    def _parse_row_source_config(
+        output_field: str,
+        raw_source: Any,
+    ) -> ArticleRowSourceConfig:
+        if not isinstance(raw_source, str) or not raw_source:
+            raise ValueError(
+                f"Row mapping '{output_field}' sources must contain non-empty strings"
+            )
+        if raw_source == ArticleRowSourceKind.PROFILE.value:
+            return ArticleRowSourceConfig(kind=ArticleRowSourceKind.PROFILE)
+
+        prefix, has_separator, path = raw_source.partition(".")
+        if has_separator:
+            if prefix not in {
+                ArticleRowSourceKind.PAYLOAD.value,
+                ArticleRowSourceKind.FIELDS.value,
+                ArticleRowSourceKind.ITEM.value,
+            }:
+                raise ValueError(
+                    f"Row mapping '{output_field}' source '{raw_source}' uses unsupported "
+                    f"namespace '{prefix}'"
+                )
+            if not path:
+                raise ValueError(
+                    f"Row mapping '{output_field}' source '{raw_source}' must include a "
+                    f"non-empty path"
+                )
+            return ArticleRowSourceConfig(
+                kind=ArticleRowSourceKind.from_value(prefix),
+                path=path,
+            )
+
+        return ArticleRowSourceConfig(
+            kind=ArticleRowSourceKind.DIRECT_KEY,
+            path=raw_source,
+        )
+
+    @staticmethod
+    def _parse_row_transform(
+        output_field: str,
+        raw_transform: Any,
+    ) -> Optional[ArticleRowTransform]:
+        if raw_transform is None:
+            return None
+        if not isinstance(raw_transform, str) or not raw_transform:
+            raise ValueError(
+                f"Row mapping '{output_field}' field 'transform' must be a non-empty string"
+            )
+        try:
+            return ArticleRowTransform.from_value(raw_transform)
+        except ValueError as exc:
+            raise ValueError(f"Row mapping '{output_field}' field 'transform': {exc}") from exc
+
 
 @dataclass(frozen=True)
 class ArticleIngestorConfig:
@@ -262,4 +456,33 @@ class ArticleNormalizerConfig:
     profile_names: list[str]
     checkpoint_dir: Path
     parquet_dir: Path
-    row_mappings: Dict[str, Dict[str, Any]]
+    row_mappings: dict[str, "ArticleRowMappingConfig"]
+
+
+@dataclass(frozen=True)
+class ArticleRowSourceConfig:
+    """Typed row-mapping source selector parsed from YAML."""
+
+    kind: ArticleRowSourceKind
+    path: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ArticleRowMappingConfig:
+    """Typed ArticleNormalizer row mapping parsed from YAML."""
+
+    sources: list[ArticleRowSourceConfig]
+    transform: Optional[ArticleRowTransform] = None
+
+
+@dataclass(frozen=True)
+class GuardianProfileConfig:
+    """Resolved query settings for a named Guardian search profile."""
+
+    topic: str
+    run_date: Optional[date]
+    page_size: int
+    query: Optional[str] = None
+    extra_filters: Dict[str, Any] = field(default_factory=dict)
+    order_by: GuardianOrderBy = GuardianOrderBy.NEWEST
+    use_next_fallback: bool = True

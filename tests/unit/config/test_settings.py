@@ -8,6 +8,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from src.config.settings import Settings
+from src.enums.article_row_source_kind import ArticleRowSourceKind
+from src.enums.article_row_transform import ArticleRowTransform
+from src.enums.guardian_order_by import GuardianOrderBy
 from src.enums.yaml_config_type import YAMLConfigType
 
 
@@ -291,6 +294,254 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Settings.load_article_ingestor_config(configuration_root=root)
 
+
+class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
+    """This class tests load_guardian_profile_configs."""
+
+    def test_load_guardian_profile_configs_returns_typed_profiles(self):
+        """load_guardian_profile_configs: parses typed Guardian profile config objects."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "run_date": "2026-04-28",
+                        "page_size": 3,
+                        "query": "chips",
+                        "extra_filters": {"section": "technology"},
+                        "order_by": "oldest",
+                        "use_next_fallback": False,
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_profiles = Settings.load_guardian_profile_configs(configuration_root=root)
+
+        profile = typed_profiles["technology_daily"]
+        self.assertEqual(profile.topic, "technology")
+        self.assertEqual(profile.page_size, 3)
+        self.assertEqual(profile.order_by, GuardianOrderBy.OLDEST)
+        self.assertEqual(profile.extra_filters, {"section": "technology"})
+        self.assertFalse(profile.use_next_fallback)
+
+    def test_load_guardian_profile_configs_allows_none_extra_filters(self):
+        """load_guardian_profile_configs: converts null extra_filters into an empty mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "extra_filters": None,
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_profiles = Settings.load_guardian_profile_configs(configuration_root=root)
+
+        self.assertEqual(typed_profiles["technology_daily"].extra_filters, {})
+
+    def test_load_guardian_profile_configs_raises_for_missing_profiles(self):
+        """load_guardian_profile_configs: raises when profiles is empty or missing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_non_mapping_profile(self):
+        """load_guardian_profile_configs: raises when a profile value is not a mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {"technology_daily": "invalid"},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_missing_topic(self):
+        """load_guardian_profile_configs: raises when a profile has no topic."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {"technology_daily": {"page_size": 3}},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_invalid_order_by(self):
+        """load_guardian_profile_configs: raises when order_by is unsupported."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "order_by": "sideways",
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_invalid_page_size(self):
+        """load_guardian_profile_configs: raises when page_size falls outside configured bounds."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "page_size": 0,
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_invalid_extra_filters(self):
+        """load_guardian_profile_configs: raises when extra_filters is not a mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "extra_filters": "invalid",
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_invalid_page_size_settings(self):
+        """load_guardian_profile_configs: raises when global page-size settings are invalid."""
+        invalid_configs = [
+            {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 0,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {"technology_daily": {"topic": "technology"}},
+            },
+            {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 0,
+                "timeout_seconds": 30,
+                "profiles": {"technology_daily": {"topic": "technology"}},
+            },
+            {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 51,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {"technology_daily": {"topic": "technology"}},
+            },
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for raw_config in invalid_configs:
+                with self.subTest(raw_config=raw_config), patch(
+                    "src.config.settings.Settings.load_ingestion_config_from_root",
+                    return_value=raw_config,
+                ):
+                    with self.assertRaises(ValueError):
+                        Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_invalid_use_next_fallback(self):
+        """load_guardian_profile_configs: raises when use_next_fallback is not boolean."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "use_next_fallback": "yes",
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
+
+class TestSettingsLoadArticleNormalizerConfig(unittest.TestCase):
+    """This class tests load_article_normalizer_config."""
+
     def test_load_article_normalizer_config_returns_typed_config(self):
         """load_article_normalizer_config: returns validated typed normalizer settings."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -319,7 +570,62 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         self.assertEqual(typed_config.profile_names, ["technology_daily", "science_daily"])
         self.assertEqual(typed_config.checkpoint_dir, Path("checkpoints/article_ingestor"))
         self.assertEqual(typed_config.parquet_dir, Path("checkpoints/parquet"))
-        self.assertIn("headline", typed_config.row_mappings)
+        self.assertEqual(
+            typed_config.row_mappings["headline"].sources[0].kind,
+            ArticleRowSourceKind.FIELDS,
+        )
+        self.assertEqual(typed_config.row_mappings["headline"].sources[0].path, "headline")
+
+    def test_load_article_normalizer_config_parses_direct_key_and_transform(self):
+        """load_article_normalizer_config: parses direct-key sources and enum transforms."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "published_at": {
+                            "sources": ["webPublicationDate"],
+                            "transform": "parse_iso",
+                        }
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_config = Settings.load_article_normalizer_config(configuration_root=root)
+
+        row_mapping = typed_config.row_mappings["published_at"]
+        self.assertEqual(row_mapping.sources[0].kind, ArticleRowSourceKind.DIRECT_KEY)
+        self.assertEqual(row_mapping.sources[0].path, "webPublicationDate")
+        self.assertEqual(row_mapping.transform, ArticleRowTransform.PARSE_ISO)
+
+    def test_load_article_normalizer_config_parses_profile_source(self):
+        """load_article_normalizer_config: parses the reserved profile source selector."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "profile": {"sources": ["profile"]}
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_config = Settings.load_article_normalizer_config(configuration_root=root)
+
+        self.assertEqual(
+            typed_config.row_mappings["profile"].sources[0].kind,
+            ArticleRowSourceKind.PROFILE,
+        )
 
     def test_load_article_normalizer_config_raises_for_missing_row_mappings(self):
         """load_article_normalizer_config: raises when row_mappings are absent or empty."""
@@ -329,6 +635,154 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
                 "profiles": {"technology_daily": {"topic": "technology"}},
                 "article_ingestor": {},
                 "article_normalizer": {},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_non_mapping_row_mapping(self):
+        """load_article_normalizer_config: raises when one row mapping is not a mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "headline": "fields.headline"
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_invalid_sources_list(self):
+        """load_article_normalizer_config: raises when sources is missing, empty, or malformed."""
+        invalid_row_mappings = [
+            {"headline": {"sources": []}},
+            {"headline": {"sources": "fields.headline"}},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for row_mappings in invalid_row_mappings:
+                raw_config = {
+                    "profiles": {"technology_daily": {"topic": "technology"}},
+                    "article_ingestor": {},
+                    "article_normalizer": {"row_mappings": row_mappings},
+                }
+                with self.subTest(row_mappings=row_mappings), patch(
+                    "src.config.settings.Settings.load_ingestion_config_from_root",
+                    return_value=raw_config,
+                ):
+                    with self.assertRaises(ValueError):
+                        Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_non_string_source(self):
+        """load_article_normalizer_config: raises when a source entry is not a string."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "headline": {"sources": [1]}
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_invalid_source_namespace(self):
+        """load_article_normalizer_config: raises for unsupported dotted source namespaces."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "headline": {"sources": ["feilds.headline"]}
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_empty_dotted_path(self):
+        """load_article_normalizer_config: raises when a dotted source path is empty."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "headline": {"sources": ["fields."]}
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_invalid_transform(self):
+        """load_article_normalizer_config: raises when transform is unsupported."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "headline": {
+                            "sources": ["fields.headline"],
+                            "transform": "uppercase",
+                        }
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_non_string_transform(self):
+        """load_article_normalizer_config: raises when transform is not a string."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {
+                        "headline": {
+                            "sources": ["fields.headline"],
+                            "transform": 1,
+                        }
+                    }
+                },
             }
             with patch(
                 "src.config.settings.Settings.load_ingestion_config_from_root",

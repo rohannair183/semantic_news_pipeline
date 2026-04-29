@@ -5,28 +5,17 @@ responses.
 """
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Dict, Iterator, List, Optional, Union
 from urllib.parse import quote
 
 import requests
 
-from src.config.settings import Settings
+from src.config.settings import GuardianProfileConfig, Settings
+from src.enums.guardian_order_by import GuardianOrderBy
+from src.enums.guardian_use_date import GuardianUseDate
 from src.utils.dates import coerce_day, format_day_iso, utc_today_date
-
-
-@dataclass(frozen=True)
-class GuardianSearchRequest:
-    """Resolved query settings for a named Guardian search profile."""
-
-    topic: str
-    run_date: Optional[date]
-    page_size: int
-    query: Optional[str] = None
-    extra_filters: Dict[str, Any] = field(default_factory=dict)
-    order_by: str = "newest"
-    use_next_fallback: bool = True
 
 
 @dataclass
@@ -65,8 +54,7 @@ class GuardianClient:
         self.requests_per_second = requests_per_second
         self._last_request_time = 0.0
 
-        config_values = Settings.load_ingestion_config()
-        self._profiles = self._load_profiles(config_values.get("profiles"))
+        self._profiles = Settings.load_guardian_profile_configs()
 
     @property
     def api_key(self) -> str:
@@ -115,86 +103,14 @@ class GuardianClient:
         """
         return self._settings.timeout_seconds
 
-    def _load_profiles(
-        self,
-        profile_values: Optional[Dict[str, Any]],
-    ) -> Dict[str, GuardianSearchRequest]:
-        """Validate and load configured query profiles from YAML.
-
-        Parameters:
-            profile_values: Raw mapping of profile configurations loaded from YAML.
-
-        Returns:
-            Dict[str, GuardianSearchRequest]: Resolved mapping of profile name to
-                validated `GuardianSearchRequest` objects.
-        """
-        if not isinstance(profile_values, dict) or not profile_values:
-            raise ValueError("Ingestion config must define a non-empty 'profiles' mapping")
-
-        resolved_profiles: Dict[str, GuardianSearchRequest] = {}
-        for profile_name, raw_profile in profile_values.items():
-            resolved_profiles[profile_name] = self._build_profile_request(
-                profile_name=profile_name,
-                raw_profile=raw_profile,
-            )
-        return resolved_profiles
-
-    def _build_profile_request(
-        self,
-        profile_name: str,
-        raw_profile: Any,
-    ) -> GuardianSearchRequest:
-        """Create a validated request object from one raw profile mapping.
-
-        Parameters:
-            profile_name: The name of the profile used for error messages.
-            raw_profile: Raw profile mapping as loaded from configuration.
-
-        Returns:
-            GuardianSearchRequest: Validated request object for the profile.
-        """
-        if not isinstance(raw_profile, dict):
-            raise ValueError(f"Profile '{profile_name}' must be a mapping")
-
-        topic = raw_profile.get("topic")
-        if not topic:
-            raise ValueError(f"Profile '{profile_name}' is missing required 'topic'")
-
-        raw_page_size = raw_profile.get("page_size", self.default_page_size)
-        page_size = self._validate_page_size(int(raw_page_size))
-
-        extra_filters = raw_profile.get("extra_filters", {})
-        if extra_filters is None:
-            extra_filters = {}
-        if not isinstance(extra_filters, dict):
-            raise ValueError(f"Profile '{profile_name}' field 'extra_filters' must be a mapping")
-
-        use_next_fallback = raw_profile.get("use_next_fallback", True)
-        if not isinstance(use_next_fallback, bool):
-            raise ValueError(
-                f"Profile '{profile_name}' field 'use_next_fallback' must be a boolean"
-            )
-        raw_run_date = raw_profile.get("run_date")
-        resolved_run_date = None if raw_run_date is None else coerce_day(raw_run_date)
-
-        return GuardianSearchRequest(
-            topic=str(topic),
-            run_date=resolved_run_date,
-            page_size=page_size,
-            query=raw_profile.get("query"),
-            extra_filters=dict(extra_filters),
-            order_by=str(raw_profile.get("order_by", "newest")),
-            use_next_fallback=use_next_fallback,
-        )
-
-    def _get_profile_request(self, profile: str) -> GuardianSearchRequest:
+    def _get_profile_request(self, profile: str) -> GuardianProfileConfig:
         """Return a configured request profile or raise a helpful error.
 
         Parameters:
             profile: The configured profile name to retrieve.
 
         Returns:
-            GuardianSearchRequest: The request profile associated with `profile`.
+            GuardianProfileConfig: The request profile associated with `profile`.
         """
         if not profile:
             raise ValueError("profile must not be empty")
@@ -299,13 +215,13 @@ class GuardianClient:
 
     def _build_search_params(
         self,
-        request: GuardianSearchRequest,
+        request: GuardianProfileConfig,
         page: int,
     ) -> Dict[str, Any]:
         """Build a validated parameter set for the /search endpoint.
 
         Parameters:
-            request: The resolved `GuardianSearchRequest` for which to build params.
+            request: The resolved `GuardianProfileConfig` for which to build params.
             page: Page number to request.
 
         Returns:
@@ -320,10 +236,10 @@ class GuardianClient:
             "q": request.topic,
             "from-date": self._normalize_date(request.run_date),
             "to-date": self._normalize_date(request.run_date),
-            "use-date": "published",
+            "use-date": GuardianUseDate.PUBLISHED.value,
             "page": page,
             "page-size": self._validate_page_size(request.page_size),
-            "order-by": request.order_by,
+            "order-by": request.order_by.value,
         }
         if request.query:
             params["q"] = request.query
@@ -331,11 +247,11 @@ class GuardianClient:
             params.update(request.extra_filters)
         return params
 
-    def _search_page(self, request: GuardianSearchRequest, page: int) -> Dict[str, Any]:
+    def _search_page(self, request: GuardianProfileConfig, page: int) -> Dict[str, Any]:
         """Fetch one /search page for a configured request profile.
 
         Parameters:
-            request: The `GuardianSearchRequest` to execute.
+            request: The `GuardianProfileConfig` to execute.
             page: Page number to fetch.
 
         Returns:
@@ -368,11 +284,11 @@ class GuardianClient:
         payload = self._request_json(path, params)
         return self._extract_response_or_raise(payload)
 
-    def _iter_search_responses(self, request: GuardianSearchRequest) -> Iterator[Dict[str, Any]]:
+    def _iter_search_responses(self, request: GuardianProfileConfig) -> Iterator[Dict[str, Any]]:
         """Yield sequential /search responses until pagination is exhausted.
 
         Parameters:
-            request: The resolved `GuardianSearchRequest` to iterate.
+            request: The resolved `GuardianProfileConfig` to iterate.
 
         Returns:
             Iterator[Dict[str, Any]]: Iterator yielding top-level response dicts.
@@ -391,11 +307,11 @@ class GuardianClient:
                 return
             page += 1
 
-    def _build_next_query_params(self, request: GuardianSearchRequest) -> Dict[str, Any]:
+    def _build_next_query_params(self, request: GuardianProfileConfig) -> Dict[str, Any]:
         """Build /next continuation params from the base search request.
 
         Parameters:
-            request: The resolved `GuardianSearchRequest` to base params on.
+            request: The resolved `GuardianProfileConfig` to base params on.
 
         Returns:
             Dict[str, Any]: Query parameters for /content/{id}/next calls.
@@ -474,9 +390,11 @@ class GuardianClient:
         """
         payload = params.copy() if params else {}
         page = int(payload.pop("page", 1))
-        order_by = payload.pop("order-by", "newest")
+        order_by = GuardianOrderBy.from_value(
+            str(payload.pop("order-by", GuardianOrderBy.NEWEST.value))
+        )
         raw_run_date = payload.pop("run_date", payload.pop("date", None))
-        request = GuardianSearchRequest(
+        request = GuardianProfileConfig(
             topic=topic,
             run_date=None if raw_run_date is None else coerce_day(raw_run_date),
             page_size=self._validate_page_size(

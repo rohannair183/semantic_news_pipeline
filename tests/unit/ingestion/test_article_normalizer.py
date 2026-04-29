@@ -10,11 +10,13 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from src.config.settings import ArticleNormalizerConfig
+from src.config.settings import ArticleNormalizerConfig, ArticleRowMappingConfig
 from src.ingestion.article_normalizer import ArticleNormalizer
 from tests.unit.ingestion.test_config_helpers import (
     NORMALIZER_ROW_MAPPINGS,
     build_normalizer_config,
+    build_row_mapping_configs,
+    build_row_source_config,
 )
 
 
@@ -37,7 +39,7 @@ def _build_article_normalizer_config(
             str(article_ingestor_config.get("checkpoint_dir", "checkpoints/article_ingestor"))
         ),
         parquet_dir=Path(str(article_ingestor_config.get("parquet_dir", "checkpoints/parquet"))),
-        row_mappings=article_normalizer_config["row_mappings"],
+        row_mappings=build_row_mapping_configs(article_normalizer_config["row_mappings"]),
     )
 
 
@@ -284,7 +286,7 @@ class TestArticleNormalizerRowMappingHelpers(unittest.TestCase):
             "profile_value": "test_profile",
         }
         result = self.normalizer._resolve_source_value(  # pylint: disable=protected-access
-            source_name="item.fields.headline",
+            source_config=build_row_source_config("item.fields.headline"),
             context=context,
         )
         self.assertEqual(result, "Nested Headline")
@@ -306,7 +308,9 @@ class TestArticleNormalizerRowMappingHelpers(unittest.TestCase):
 
     def test_build_row_rejects_empty_sources(self):
         """_build_row: raises ValueError when a mapping has no sources."""
-        self.normalizer._row_mappings = {"headline": {"sources": []}}  # pylint: disable=protected-access
+        self.normalizer._row_mappings = {  # pylint: disable=protected-access
+            "headline": ArticleRowMappingConfig(sources=[]),
+        }
         with self.assertRaises(ValueError):
             self.normalizer._build_row(  # pylint: disable=protected-access
                 payload={"profile": "test_profile"},

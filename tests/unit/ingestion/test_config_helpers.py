@@ -2,6 +2,9 @@
 
 from typing import Any, Dict, Optional
 
+from src.config.settings import ArticleRowMappingConfig, ArticleRowSourceConfig, Settings
+from src.enums.article_row_transform import ArticleRowTransform
+
 NORMALIZER_ROW_MAPPINGS: Dict[str, Dict[str, Any]] = {
     "profile": {"sources": ["profile", "payload.profile"]},
     "api_id": {"sources": ["id"]},
@@ -25,6 +28,33 @@ NORMALIZER_ROW_MAPPINGS: Dict[str, Dict[str, Any]] = {
         "transform": "parse_iso",
     },
 }
+
+
+def build_row_source_config(source_name: str) -> ArticleRowSourceConfig:
+    """Build a typed row source config from a canonical test source string."""
+    return Settings._parse_row_source_config(  # pylint: disable=protected-access
+        output_field="test_field",
+        raw_source=source_name,
+    )
+
+
+def build_row_mapping_configs(
+    row_mappings: Dict[str, Dict[str, Any]],
+) -> dict[str, ArticleRowMappingConfig]:
+    """Build typed row mapping configs from canonical raw test fixtures."""
+    resolved_row_mappings: dict[str, ArticleRowMappingConfig] = {}
+    for output_field, field_config in row_mappings.items():
+        transform = field_config.get("transform")
+        resolved_row_mappings[output_field] = ArticleRowMappingConfig(
+            sources=[
+                build_row_source_config(str(source_name))
+                for source_name in field_config["sources"]
+            ],
+            transform=None
+            if transform is None
+            else ArticleRowTransform.from_value(str(transform)),
+        )
+    return resolved_row_mappings
 
 
 def build_ingestion_config(

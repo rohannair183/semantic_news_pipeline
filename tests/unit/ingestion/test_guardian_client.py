@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 import requests
 
-from src.config.settings import Settings
-from src.ingestion.guardian_client import GuardianClient, GuardianSearchRequest
+from src.config.settings import GuardianProfileConfig, Settings
+from src.enums.guardian_order_by import GuardianOrderBy
+from src.ingestion.guardian_client import GuardianClient
 
 
 class GuardianClientTestCase(unittest.TestCase):
@@ -25,51 +26,51 @@ class GuardianClientTestCase(unittest.TestCase):
             timeout_seconds=15,
         )
         self.mock_profiles = {
-            "technology_profile": {
-                "topic": "technology",
-                "run_date": "2026-04-26",
-                "page_size": 2,
-                "query": "technology",
-                "order_by": "newest",
-                "use_next_fallback": True,
-            },
-            "science_profile": {
-                "topic": "science",
-                "run_date": "2026-04-26",
-                "page_size": 2,
-                "order_by": "newest",
-                "use_next_fallback": True,
-            },
-            "x_profile": {
-                "topic": "x",
-                "run_date": "2026-04-26",
-                "page_size": 2,
-                "order_by": "newest",
-                "use_next_fallback": True,
-            },
-            "no_fallback_profile": {
-                "topic": "x",
-                "run_date": "2026-04-26",
-                "page_size": 2,
-                "order_by": "newest",
-                "use_next_fallback": False,
-            },
+            "technology_profile": GuardianProfileConfig(
+                topic="technology",
+                run_date=date(2026, 4, 26),
+                page_size=2,
+                query="technology",
+                order_by=GuardianOrderBy.NEWEST,
+                use_next_fallback=True,
+            ),
+            "science_profile": GuardianProfileConfig(
+                topic="science",
+                run_date=date(2026, 4, 26),
+                page_size=2,
+                order_by=GuardianOrderBy.NEWEST,
+                use_next_fallback=True,
+            ),
+            "x_profile": GuardianProfileConfig(
+                topic="x",
+                run_date=date(2026, 4, 26),
+                page_size=2,
+                order_by=GuardianOrderBy.NEWEST,
+                use_next_fallback=True,
+            ),
+            "no_fallback_profile": GuardianProfileConfig(
+                topic="x",
+                run_date=date(2026, 4, 26),
+                page_size=2,
+                order_by=GuardianOrderBy.NEWEST,
+                use_next_fallback=False,
+            ),
         }
 
         self.load_settings_patcher = patch(
             "src.ingestion.guardian_client.Settings.load_settings",
             return_value=self.mock_settings,
         )
-        self.load_config_patcher = patch(
-            "src.ingestion.guardian_client.Settings.load_ingestion_config",
-            return_value={"profiles": self.mock_profiles},
+        self.load_profiles_patcher = patch(
+            "src.ingestion.guardian_client.Settings.load_guardian_profile_configs",
+            return_value=self.mock_profiles,
         )
 
         self.mock_load_settings = self.load_settings_patcher.start()
-        self.mock_load_config = self.load_config_patcher.start()
+        self.mock_load_profiles = self.load_profiles_patcher.start()
 
     def tearDown(self):
-        self.load_config_patcher.stop()
+        self.load_profiles_patcher.stop()
         self.load_settings_patcher.stop()
         super().tearDown()
 
@@ -84,8 +85,9 @@ class TestGuardianClientInit(GuardianClientTestCase):
         self.assertIsNotNone(client)
         self.assertEqual(client.api_key, "test_api_key")
         self.assertEqual(profiles["technology_profile"].run_date, date(2026, 4, 26))
+        self.assertEqual(profiles["technology_profile"].order_by, GuardianOrderBy.NEWEST)
         self.mock_load_settings.assert_called_once_with()
-        self.mock_load_config.assert_called_once_with()
+        self.mock_load_profiles.assert_called_once_with()
 
     @patch(
         "src.ingestion.guardian_client.Settings.load_settings",
@@ -119,81 +121,11 @@ class TestGuardianClientInit(GuardianClientTestCase):
             GuardianClient(requests_per_second=0)
 
     @patch(
-        "src.ingestion.guardian_client.Settings.load_ingestion_config",
-        return_value={"profiles": {"bad_profile": {"page_size": 3}}},
+        "src.ingestion.guardian_client.Settings.load_guardian_profile_configs",
+        side_effect=ValueError("bad profiles"),
     )
-    def test_init_rejects_profile_missing_topic(self, _mock_load_config):
-        """__init__: rejects malformed profile config missing required topic."""
-        with self.assertRaises(ValueError):
-            GuardianClient()
-
-    @patch(
-        "src.ingestion.guardian_client.Settings.load_ingestion_config",
-        return_value={"profiles": {}},
-    )
-    def test_init_rejects_empty_profiles(self, _mock_load_config):
-        """__init__: rejects empty profiles mapping."""
-        with self.assertRaises(ValueError):
-            GuardianClient()
-
-    @patch(
-        "src.ingestion.guardian_client.Settings.load_ingestion_config",
-        return_value={"profiles": {"bad_profile": "invalid"}},
-    )
-    def test_init_rejects_non_mapping_profile(self, _mock_load_config):
-        """__init__: rejects profile values that are not mappings."""
-        with self.assertRaises(ValueError):
-            GuardianClient()
-
-    @patch(
-        "src.ingestion.guardian_client.Settings.load_ingestion_config",
-        return_value={
-            "profiles": {
-                "bad_profile": {
-                    "topic": "tech",
-                    "extra_filters": None,
-                    "use_next_fallback": True,
-                }
-            }
-        },
-    )
-    def test_init_allows_none_extra_filters(self, _mock_load_config):
-        """__init__: treats null extra_filters as an empty mapping."""
-        client = GuardianClient()
-        self.assertEqual(
-            client._profiles["bad_profile"].extra_filters, {}  # pylint: disable=protected-access
-        )
-
-    @patch(
-        "src.ingestion.guardian_client.Settings.load_ingestion_config",
-        return_value={
-            "profiles": {
-                "bad_profile": {
-                    "topic": "tech",
-                    "extra_filters": "nope",
-                    "use_next_fallback": True,
-                }
-            }
-        },
-    )
-    def test_init_rejects_non_mapping_extra_filters(self, _mock_load_config):
-        """__init__: rejects non-mapping extra_filters field."""
-        with self.assertRaises(ValueError):
-            GuardianClient()
-
-    @patch(
-        "src.ingestion.guardian_client.Settings.load_ingestion_config",
-        return_value={
-            "profiles": {
-                "bad_profile": {
-                    "topic": "tech",
-                    "use_next_fallback": "true",
-                }
-            }
-        },
-    )
-    def test_init_rejects_non_boolean_use_next_fallback(self, _mock_load_config):
-        """__init__: rejects non-boolean use_next_fallback field."""
+    def test_init_propagates_profile_loading_error(self, _mock_load_profiles):
+        """__init__: surfaces typed profile-loading errors from Settings."""
         with self.assertRaises(ValueError):
             GuardianClient()
 
@@ -325,7 +257,7 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
         """_build_search_params: rejects missing topic and supports query/filters."""
         client = GuardianClient()
         build_search_params = getattr(client, "_build_search_params")
-        request = GuardianSearchRequest(
+        request = GuardianProfileConfig(
             topic="",
             run_date=date(2026, 4, 1),
             page_size=10,
@@ -333,17 +265,20 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
         with self.assertRaises(ValueError):
             build_search_params(request, page=1)
 
-        request = GuardianSearchRequest(
+        request = GuardianProfileConfig(
             topic="technology",
             run_date=date(2026, 4, 1),
             page_size=10,
             query="chips",
             extra_filters={"lang": "en"},
+            order_by=GuardianOrderBy.OLDEST,
         )
         params = build_search_params(request, page=2)
         self.assertEqual(params["q"], "chips")
         self.assertEqual(params["lang"], "en")
         self.assertEqual(params["page"], 2)
+        self.assertEqual(params["order-by"], "oldest")
+        self.assertEqual(params["use-date"], "published")
 
 
 class TestGuardianClientSearchNextPage(GuardianClientTestCase):
@@ -375,7 +310,7 @@ class TestGuardianClientSearchPage(GuardianClientTestCase):
     def test_search_page_success_path(self):
         """_search_page: wrapper calls the request parser pipeline correctly."""
         client = GuardianClient()
-        request = GuardianSearchRequest(
+        request = GuardianProfileConfig(
             topic="technology",
             run_date=date(2026, 4, 1),
             page_size=10,
@@ -405,6 +340,12 @@ class TestGuardianClientGetArticlesListByTopic(GuardianClientTestCase):
             result = client.get_articles_list_by_topic("tech")
         self.assertEqual(result["total_available"], 3)
         self.assertEqual(result["page"], 1)
+
+    def test_get_articles_list_by_topic_rejects_invalid_order_by(self):
+        """get_articles_list_by_topic: raises immediately for unsupported order-by values."""
+        client = GuardianClient()
+        with self.assertRaises(ValueError):
+            client.get_articles_list_by_topic("tech", params={"order-by": "sideways"})
 
 
 class TestGuardianClientIterTopicArticles(GuardianClientTestCase):
