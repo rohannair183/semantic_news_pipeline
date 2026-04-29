@@ -99,23 +99,31 @@ class ArticleNormalizer:
         Returns:
             Resolved value from the source path or None if not found.
         """
-        item = context["item"]
-        fields = context["fields"]
-        payload = context["payload"]
-        profile_value = context["profile_value"]
         if source_config.kind == ArticleRowSourceKind.PROFILE:
-            return profile_value
-        if source_config.kind == ArticleRowSourceKind.PAYLOAD:
-            return self._resolve_nested_value(payload, str(source_config.path))
-        if source_config.kind == ArticleRowSourceKind.FIELDS:
-            return self._resolve_nested_value(fields, str(source_config.path))
-        if source_config.kind == ArticleRowSourceKind.ITEM:
-            return self._resolve_nested_value(item, str(source_config.path))
+            return context["profile_value"]
+        if source_config.kind == ArticleRowSourceKind.DIRECT_KEY:
+            return self._resolve_direct_key(
+                source_name=str(source_config.path),
+                source_mappings=[
+                    context["item"],
+                    context["fields"],
+                    context["payload"],
+                ],
+            )
+        return self._resolve_nested_value(
+            context[source_config.kind.value],
+            str(source_config.path),
+        )
 
-        source_name = str(source_config.path)
-        for source_mapping in (item, fields, payload):
+    @staticmethod
+    def _resolve_direct_key(
+        source_name: str,
+        source_mappings: List[Dict[str, Any]],
+    ) -> Any:
+        """Resolve a direct key from the first source mapping that contains it."""
+        for source_mapping in source_mappings:
             if source_name in source_mapping:
-                return source_mapping.get(source_name)
+                return source_mapping[source_name]
         return None
 
     @staticmethod
@@ -179,23 +187,34 @@ class ArticleNormalizer:
             "payload": payload,
             "profile_value": profile or payload.get("profile"),
         }
-        row: Dict[str, Any] = {}
+        return {
+            output_field: self._resolve_row_value(
+                output_field=output_field,
+                field_config=field_config,
+                context=context,
+            )
+            for output_field, field_config in self.row_mappings.items()
+        }
 
-        for output_field, field_config in self.row_mappings.items():
-            if not field_config.sources:
-                raise ValueError(
-                    f"Row mapping '{output_field}' must contain a non-empty 'sources' list"
-                )
+    def _resolve_row_value(
+        self,
+        output_field: str,
+        field_config: ArticleRowMappingConfig,
+        context: Dict[str, Any],
+    ) -> Any:
+        """Resolve and transform one output field from configured row mappings."""
+        if not field_config.sources:
+            raise ValueError(
+                f"Row mapping '{output_field}' must contain a non-empty 'sources' list"
+            )
 
-            resolved_values = [
+        value = self._first_non_empty(
+            [
                 self._resolve_source_value(source_config=source_config, context=context)
                 for source_config in field_config.sources
             ]
-            value = self._first_non_empty(resolved_values)
-            value = self._apply_row_transform(value, field_config.transform)
-            row[output_field] = value
-
-        return row
+        )
+        return self._apply_row_transform(value, field_config.transform)
 
     def _parse_ts_from_filename(self, path: Path) -> Optional[datetime]:
         """Parse timestamp token from checkpoint filename.
@@ -232,19 +251,27 @@ class ArticleNormalizer:
         self._ensure_day(day)
         found: Dict[str, Path] = {}
         for profile in self.profiles:
-            files = self._list_profile_files(profile)
-            daily = []
-            for f in files:
-                ts = self._parse_ts_from_filename(f)
-                if ts is None:
-                    continue
-                if ts.date() == day:
-                    daily.append((ts, f))
-            if not daily:
-                continue
-            latest = max(daily, key=lambda t_f: t_f[0])[1]
-            found[profile] = latest
+            latest = self._find_latest_profile_checkpoint(profile=profile, day=day)
+            if latest is not None:
+                found[profile] = latest
         return found
+
+    def _find_latest_profile_checkpoint(
+        self,
+        profile: str,
+        day: date,
+    ) -> Optional[Path]:
+        """Return the latest checkpoint path for a profile on a given day."""
+        latest_timestamp: Optional[datetime] = None
+        latest_path: Optional[Path] = None
+        for checkpoint_path in self._list_profile_files(profile):
+            checkpoint_timestamp = self._parse_ts_from_filename(checkpoint_path)
+            if checkpoint_timestamp is None or checkpoint_timestamp.date() != day:
+                continue
+            if latest_timestamp is None or checkpoint_timestamp > latest_timestamp:
+                latest_timestamp = checkpoint_timestamp
+                latest_path = checkpoint_path
+        return latest_path
 
     @staticmethod
     def _parse_iso(value: Optional[str]) -> Optional[datetime]:
@@ -283,17 +310,11 @@ class ArticleNormalizer:
         with checkpoint_path.open("r", encoding="utf-8") as fh:
             payload = json.load(fh)
 
-        items = payload.get("items", []) or []
-        rows = []
-        for it in items:
-            row = self._build_row(payload=payload, item=it, profile=profile)
-            rows.append(row)
-
-        if not rows:
-            return pd.DataFrame()
-
-        df = pd.DataFrame(rows)
-        return df
+        rows = [
+            self._build_row(payload=payload, item=item, profile=profile)
+            for item in payload.get("items", []) or []
+        ]
+        return pd.DataFrame(rows)
 
     def _write_parquet(self, df: pd.DataFrame, profile: str, day: date) -> Path:
         """Write normalized DataFrame to Parquet file.

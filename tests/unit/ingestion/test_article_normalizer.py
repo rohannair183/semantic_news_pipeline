@@ -332,6 +332,41 @@ class TestArticleNormalizerRowMappingHelpers(unittest.TestCase):
                 )
 
 
+class TestArticleNormalizerResolveSourceValue(unittest.TestCase):
+    """This class tests _resolve_source_value."""
+
+    def setUp(self):
+        self.normalizer = _build_article_normalizer(Path(tempfile.mkdtemp()))
+        self.context = {
+            "item": {"headline": "Item headline"},
+            "fields": {"headline": "Fields headline"},
+            "payload": {"headline": "Payload headline"},
+            "profile_value": "test_profile",
+        }
+
+    def test_resolve_source_value_prefers_item_for_direct_key(self):
+        """_resolve_source_value: prefers item values for direct-key sources."""
+        result = self.normalizer._resolve_source_value(  # pylint: disable=protected-access
+            source_config=build_row_source_config("headline"),
+            context=self.context,
+        )
+        self.assertEqual(result, "Item headline")
+
+    def test_resolve_source_value_falls_back_to_payload_for_direct_key(self):
+        """_resolve_source_value: falls back to payload when item and fields are missing."""
+        context = {
+            "item": {},
+            "fields": {},
+            "payload": {"headline": "Payload headline"},
+            "profile_value": "test_profile",
+        }
+        result = self.normalizer._resolve_source_value(  # pylint: disable=protected-access
+            source_config=build_row_source_config("headline"),
+            context=context,
+        )
+        self.assertEqual(result, "Payload headline")
+
+
 class TestArticleNormalizerProperties(unittest.TestCase):
     """This class tests the config-backed properties."""
 
