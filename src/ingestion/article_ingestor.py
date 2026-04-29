@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Set
 
 from src.config.settings import Settings
 from src.ingestion.guardian_client import GuardianClient
+from src.ingestion.ingestion_logger import IngestionLogger
 from src.utils.dates import utc_now_checkpoint_token
 
 
@@ -14,9 +15,14 @@ class ArticleIngestor:
 
     def __init__(self):
         """Initialize ingestion dependencies."""
-        self.client = GuardianClient()
         self.config = Settings.load_article_ingestor_config()
         self.run_timestamp = utc_now_checkpoint_token()
+        self.logger = IngestionLogger(
+            enabled=self.config.enable_usage_logging,
+            logs_dir=self.config.logs_dir,
+            run_timestamp=self.run_timestamp,
+        )
+        self.client = GuardianClient(usage_logger=self.logger)
         self._seen_ids: Set[str] = set()
 
     @property
@@ -53,7 +59,11 @@ class ArticleIngestor:
             return set()
         return {str(value) for value in ids_payload}
 
-    def _write_ingested_id_manifest(self, ids: Set[str]) -> Optional[str]:
+    def _write_ingested_id_manifest(
+        self,
+        ids: Set[str],
+        api_usage: Dict[str, Any],
+    ) -> Optional[str]:
         """Persist ingested IDs as one global list."""
         manifest_path = self.id_manifest_path
         if manifest_path is None:
@@ -62,6 +72,7 @@ class ArticleIngestor:
         payload = {
             "updated_at": self.run_timestamp,
             "ids": sorted(ids),
+            "api_usage": api_usage,
         }
         with manifest_path.open("w", encoding="utf-8") as output_file:
             json.dump(payload, output_file, ensure_ascii=False, indent=2)
@@ -165,19 +176,34 @@ class ArticleIngestor:
                     )
                 )
 
-        id_manifest_file = self._write_ingested_id_manifest(self._seen_ids)
-
-        return {
+        api_usage = self.client.get_usage_counts()
+        id_manifest_file = self._write_ingested_id_manifest(self._seen_ids, api_usage)
+        run_result = {
             "profile_count": len(profile_results),
             "profiles_run": self.profiles_to_run,
             "limit_per_profile": self.resolved_limit,
             "checkpoint_files": checkpoint_files,
             "id_manifest_file": id_manifest_file,
+            "usage_log_file": self.logger.log_path,
             "searched_count": sum(result["searched_count"] for result in profile_results),
             "fetched_count": sum(result["fetched_count"] for result in profile_results),
             "skipped_existing_count": sum(
                 result["skipped_existing_count"] for result in profile_results
             ),
             "failed_count": sum(result["failed_count"] for result in profile_results),
+            "api_usage": api_usage,
             "results": profile_results,
         }
+        self.logger.log_ingestion_summary(
+            {
+                "run_timestamp": self.run_timestamp,
+                "profile_count": run_result["profile_count"],
+                "profiles_run": run_result["profiles_run"],
+                "searched_count": run_result["searched_count"],
+                "fetched_count": run_result["fetched_count"],
+                "skipped_existing_count": run_result["skipped_existing_count"],
+                "failed_count": run_result["failed_count"],
+                "api_usage": run_result["api_usage"],
+            }
+        )
+        return run_result

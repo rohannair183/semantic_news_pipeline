@@ -147,12 +147,21 @@ class Settings:
             )
             checkpoint_dir = Path(str(checkpoint_dir_value))
 
+        enable_usage_logging = article_ingestor_config.get("enable_usage_logging", False)
+        if not isinstance(enable_usage_logging, bool):
+            raise ValueError(
+                "Ingestion config field 'article_ingestor.enable_usage_logging' must be a boolean"
+            )
+        logs_dir = Path(str(article_ingestor_config.get("logs_dir", "logs")))
+
         return ArticleIngestorConfig(
             profile_names=profile_names,
             profiles_to_run=profiles_to_run,
             limit_per_profile=limit_per_profile,
             save_local_checkpoint=save_local_checkpoint,
             checkpoint_dir=checkpoint_dir,
+            enable_usage_logging=enable_usage_logging,
+            logs_dir=logs_dir,
         )
 
     @classmethod
@@ -689,6 +698,8 @@ class ArticleIngestorConfig:
     limit_per_profile: Optional[int]
     save_local_checkpoint: bool
     checkpoint_dir: Optional[Path]
+    enable_usage_logging: bool = False
+    logs_dir: Path = Path("logs")
 
 
 @dataclass(frozen=True)

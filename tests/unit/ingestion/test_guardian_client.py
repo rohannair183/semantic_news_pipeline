@@ -172,7 +172,8 @@ class TestGuardianClientRequestJson(GuardianClientTestCase):
 
     def test_request_json_success_and_error_paths(self):
         """_request_json: returns JSON on success and wraps HTTP/request errors."""
-        client = GuardianClient()
+        usage_logger = Mock()
+        client = GuardianClient(usage_logger=usage_logger)
 
         with patch.object(client, "_throttle"), patch(
             "src.ingestion.guardian_client.requests.get"
@@ -180,6 +181,7 @@ class TestGuardianClientRequestJson(GuardianClientTestCase):
             mock_response = Mock()
             mock_response.raise_for_status.return_value = None
             mock_response.json.return_value = {"response": {"status": "ok"}}
+            mock_response.status_code = 200
             mock_get.return_value = mock_response
             payload = getattr(client, "_request_json")("/search", {"a": 1})
         self.assertEqual(payload["response"]["status"], "ok")
@@ -187,6 +189,11 @@ class TestGuardianClientRequestJson(GuardianClientTestCase):
             url="https://content.guardianapis.com/search",
             params={"a": 1},
             timeout=15,
+        )
+        usage_logger.log_api_call.assert_called_once_with(
+            profile=None,
+            path="/search",
+            status_code=mock_response.status_code,
         )
 
         http_response = Mock()
@@ -204,6 +211,12 @@ class TestGuardianClientRequestJson(GuardianClientTestCase):
             mock_get.return_value = mock_response
             with self.assertRaises(RuntimeError):
                 getattr(client, "_request_json")("/search")
+        usage_logger.log_api_error.assert_called_with(
+            profile=None,
+            path="/search",
+            error="Guardian API HTTP error 400",
+            status_code=400,
+        )
 
         with patch.object(client, "_throttle"), patch(
             "src.ingestion.guardian_client.requests.get",
@@ -211,6 +224,12 @@ class TestGuardianClientRequestJson(GuardianClientTestCase):
         ):
             with self.assertRaises(RuntimeError):
                 getattr(client, "_request_json")("/search")
+        usage_logger.log_api_error.assert_called_with(
+            profile=None,
+            path="/search",
+            error="Guardian API connection error: down",
+            status_code=None,
+        )
 
 
 class TestGuardianClientExtractResponseOrRaise(GuardianClientTestCase):
@@ -274,6 +293,20 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
         params = build_search_params(request, page=1)
         self.assertEqual(params["q"], "science")
         self.assertNotIn("section", params)
+
+    def test_build_search_params_raises_when_date_window_missing(self):
+        """_build_search_params: raises when no run_date or from/to window exists."""
+        client = GuardianClient()
+        build_search_params = getattr(client, "_build_search_params")
+        request = GuardianProfileConfig(
+            topic="science",
+            run_date=None,
+            from_date=None,
+            to_date=None,
+            page_size=10,
+        )
+        with self.assertRaises(ValueError):
+            build_search_params(request, page=1)
 
 
 class TestGuardianClientSearchNextPage(GuardianClientTestCase):
@@ -452,6 +485,37 @@ class TestGuardianClientIterTopicArticles(GuardianClientTestCase):
         with self.assertRaises(ValueError):
             list(client.iter_topic_articles(profile=""))
 
+    def test_iter_topic_articles_requires_window_pair(self):
+        """iter_topic_articles: from_date and to_date must be provided together."""
+        client = GuardianClient()
+        with self.assertRaises(ValueError):
+            list(
+                client.iter_topic_articles(
+                    profile="technology_profile",
+                    from_date=date(2026, 4, 20),
+                    to_date=None,
+                )
+            )
+
+    def test_iter_topic_articles_applies_override_window(self):
+        """iter_topic_articles: override window is applied to profile request."""
+        client = GuardianClient()
+        with patch.object(
+            client,
+            "_iter_search_responses",
+            return_value=iter([{"results": []}]),
+        ) as mock_iter:
+            list(
+                client.iter_topic_articles(
+                    profile="technology_profile",
+                    from_date=date(2026, 4, 20),
+                    to_date=date(2026, 4, 22),
+                )
+            )
+        request_arg = mock_iter.call_args.args[0]
+        self.assertEqual(request_arg.from_date, date(2026, 4, 20))
+        self.assertEqual(request_arg.to_date, date(2026, 4, 22))
+
 
 class TestGuardianClientGetArticlesForTopicDay(GuardianClientTestCase):
     """This class tests get_articles_for_topic_day."""
@@ -495,6 +559,7 @@ class TestGuardianClientGetArticleById(GuardianClientTestCase):
                 "format": "json",
                 "show-fields": "headline,bodyText",
             },
+            profile="technology_profile",
         )
 
     def test_get_article_by_id_errors(self):
@@ -543,6 +608,28 @@ class TestGuardianClientGetArticlesByIds(GuardianClientTestCase):
             )
         self.assertEqual(result["fetched_count"], 1)
         self.assertEqual(result["failed_count"], 0)
+
+
+class TestGuardianClientGetUsageCounts(GuardianClientTestCase):
+    """This class tests get_usage_counts."""
+
+    def test_get_usage_counts_returns_logger_counters(self):
+        """get_usage_counts: proxies tracked counters from the usage logger."""
+        usage_logger = Mock()
+        usage_logger.usage_counts = {
+            "total_api_calls": 4,
+            "error_api_calls": 1,
+            "calls_by_profile": {"technology_profile": 4},
+        }
+        client = GuardianClient(usage_logger=usage_logger)
+        self.assertEqual(
+            client.get_usage_counts(),
+            {
+                "total_api_calls": 4,
+                "error_api_calls": 1,
+                "calls_by_profile": {"technology_profile": 4},
+            },
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

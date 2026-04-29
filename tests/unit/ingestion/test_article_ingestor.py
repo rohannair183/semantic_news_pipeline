@@ -37,6 +37,8 @@ def _build_article_ingestor_config(
         limit_per_profile=article_ingestor_config.get("limit_per_profile"),
         save_local_checkpoint=bool(article_ingestor_config.get("save_local_checkpoint", False)),
         checkpoint_dir=checkpoint_dir,
+        enable_usage_logging=bool(article_ingestor_config.get("enable_usage_logging", False)),
+        logs_dir=Path(str(article_ingestor_config.get("logs_dir", "logs"))),
     )
 
 
@@ -84,7 +86,10 @@ class TestArticleIngestorInit(unittest.TestCase):
         self.assertEqual(article_ingestor.resolved_limit, 3)
         self.assertEqual(article_ingestor.checkpoint_directory, Path("checkpoints/custom"))
         self.assertEqual(article_ingestor.run_timestamp, "20260428T010203Z")
+        self.assertFalse(article_ingestor.config.enable_usage_logging)
+        self.assertEqual(article_ingestor.config.logs_dir, Path("logs"))
         mock_load_config.assert_called_once_with()
+        mock_client_class.assert_called_once_with(usage_logger=article_ingestor.logger)
 
 
 class TestArticleIngestorProfilesToRun(unittest.TestCase):
@@ -381,7 +386,8 @@ class TestArticleIngestorIdManifestPersistence(unittest.TestCase):
             article_ingestor.run_timestamp = "20260429T000000Z"
 
             manifest_file = article_ingestor._write_ingested_id_manifest(  # pylint: disable=protected-access
-                {"b", "a"}
+                {"b", "a"},
+                {"total_api_calls": 2, "error_api_calls": 0, "calls_by_profile": {}},
             )
 
             self.assertIsNotNone(manifest_file)
@@ -389,6 +395,7 @@ class TestArticleIngestorIdManifestPersistence(unittest.TestCase):
                 payload = json.load(input_file)
             self.assertEqual(payload["updated_at"], "20260429T000000Z")
             self.assertEqual(payload["ids"], ["a", "b"])
+            self.assertEqual(payload["api_usage"]["total_api_calls"], 2)
 
 
 class TestArticleIngestorWriteProfileCheckpoint(unittest.TestCase):
@@ -429,7 +436,14 @@ class TestArticleIngestorRun(unittest.TestCase):
             }
         )
         client = Mock()
+        client.get_usage_counts.return_value = {
+            "total_api_calls": 5,
+            "error_api_calls": 1,
+            "calls_by_profile": {"technology_daily": 3, "science_daily": 2},
+        }
         article_ingestor.client = client
+        article_ingestor.logger = Mock()
+        article_ingestor.logger.log_path = "logs/ingestion_usage.jsonl"
         article_ingestor.run_timestamp = "20260428T010203Z"
         article_ingestor.collect_profile_articles = Mock(
             side_effect=[
@@ -467,6 +481,8 @@ class TestArticleIngestorRun(unittest.TestCase):
         self.assertEqual(result["skipped_existing_count"], 1)
         self.assertEqual(result["failed_count"], 1)
         self.assertEqual(result["checkpoint_files"], ["checkpoint_1.json", "checkpoint_2.json"])
+        self.assertEqual(result["usage_log_file"], "logs/ingestion_usage.jsonl")
+        self.assertEqual(result["api_usage"]["total_api_calls"], 5)
         self.assertEqual(len(result["results"]), 2)
         article_ingestor.collect_profile_articles.assert_any_call(
             profile="technology_daily",
@@ -476,6 +492,7 @@ class TestArticleIngestorRun(unittest.TestCase):
             profile="science_daily",
             limit=2,
         )
+        article_ingestor.logger.log_ingestion_summary.assert_called_once()
 
     def test_run_uses_configured_limit_without_checkpoints(self):
         """run: uses configured limit and skips checkpointing when disabled."""
@@ -496,11 +513,20 @@ class TestArticleIngestorRun(unittest.TestCase):
                 "failures": [],
             }
         )
+        article_ingestor.client = Mock()
+        article_ingestor.client.get_usage_counts.return_value = {
+            "total_api_calls": 1,
+            "error_api_calls": 0,
+            "calls_by_profile": {"technology_daily": 1},
+        }
+        article_ingestor.logger = Mock()
+        article_ingestor.logger.log_path = None
 
         result = article_ingestor.run()
 
         self.assertEqual(result["limit_per_profile"], 2)
         self.assertEqual(result["checkpoint_files"], [])
+        self.assertEqual(result["api_usage"]["total_api_calls"], 1)
         article_ingestor.collect_profile_articles.assert_called_once_with(
             profile="technology_daily",
             limit=2,

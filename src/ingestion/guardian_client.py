@@ -7,6 +7,7 @@ responses.
 import time
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import quote
 
@@ -14,6 +15,7 @@ import requests
 
 from src.config.settings import GuardianProfileConfig, Settings
 from src.enums.guardian_use_date import GuardianUseDate
+from src.ingestion.ingestion_logger import IngestionLogger
 from src.utils.dates import format_day_iso
 
 
@@ -33,7 +35,11 @@ class GuardianClient:
     responses. It provides methods for fetching articles based on configured query profiles.
     """
 
-    def __init__(self, requests_per_second: float = 1.0):
+    def __init__(
+        self,
+        requests_per_second: float = 1.0,
+        usage_logger: Optional[IngestionLogger] = None,
+    ):
         """Initialize client transport settings and configured query profiles.
 
         This initializes internal settings from configuration and prepares named
@@ -54,6 +60,10 @@ class GuardianClient:
         self._last_request_time = 0.0
 
         self._profiles = Settings.load_guardian_profile_configs()
+        self._usage_logger = usage_logger or IngestionLogger(
+            enabled=False,
+            logs_dir=Path("logs"),
+        )
 
     @property
     def api_key(self) -> str:
@@ -164,7 +174,12 @@ class GuardianClient:
             time.sleep(min_interval - elapsed)
         self._last_request_time = time.monotonic()
 
-    def _request_json(self, path: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def _request_json(
+        self,
+        path: str,
+        params: Optional[Dict[str, Any]] = None,
+        profile: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Make a GET request and parse the response body as JSON.
 
         Parameters:
@@ -183,12 +198,29 @@ class GuardianClient:
                 timeout=self.timeout_seconds,
             )
             response.raise_for_status()
+            self._usage_logger.log_api_call(
+                profile=profile,
+                path=path,
+                status_code=response.status_code,
+            )
             return response.json()
         except requests.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else "unknown"
             body = exc.response.text if exc.response is not None else ""
+            self._usage_logger.log_api_error(
+                profile=profile,
+                path=path,
+                error=f"Guardian API HTTP error {status_code}",
+                status_code=exc.response.status_code if exc.response is not None else None,
+            )
             raise RuntimeError(f"Guardian API HTTP error {status_code}: {body}") from exc
         except requests.RequestException as exc:
+            self._usage_logger.log_api_error(
+                profile=profile,
+                path=path,
+                error=f"Guardian API connection error: {exc}",
+                status_code=None,
+            )
             raise RuntimeError(f"Guardian API connection error: {exc}") from exc
 
     def _extract_response_or_raise(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -245,7 +277,12 @@ class GuardianClient:
             params["section"] = request.section
         return params
 
-    def _search_page(self, request: GuardianProfileConfig, page: int) -> Dict[str, Any]:
+    def _search_page(
+        self,
+        request: GuardianProfileConfig,
+        page: int,
+        profile: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Fetch one /search page for a configured request profile.
 
         Parameters:
@@ -255,13 +292,18 @@ class GuardianClient:
         Returns:
             Dict[str, Any]: The top-level `response` object from the API.
         """
-        payload = self._request_json("/search", self._build_search_params(request, page))
+        payload = self._request_json(
+            "/search",
+            self._build_search_params(request, page),
+            profile=profile,
+        )
         return self._extract_response_or_raise(payload)
 
     def _search_next_page(
         self,
         last_content_id: str,
         base_query_params: Dict[str, Any],
+        profile: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Fetch deep-pagination continuation using /content/{id}/next.
 
@@ -279,10 +321,14 @@ class GuardianClient:
         params = dict(base_query_params)
         params.setdefault("api-key", self.api_key)
         params.setdefault("format", "json")
-        payload = self._request_json(path, params)
+        payload = self._request_json(path, params, profile=profile)
         return self._extract_response_or_raise(payload)
 
-    def _iter_search_responses(self, request: GuardianProfileConfig) -> Iterator[Dict[str, Any]]:
+    def _iter_search_responses(
+        self,
+        request: GuardianProfileConfig,
+        profile: Optional[str] = None,
+    ) -> Iterator[Dict[str, Any]]:
         """Yield sequential /search responses until pagination is exhausted.
 
         Parameters:
@@ -293,7 +339,7 @@ class GuardianClient:
         """
         page = 1
         while True:
-            response = self._search_page(request, page)
+            response = self._search_page(request, page, profile=profile)
             results = response.get("results", [])
             if not results:
                 return
@@ -323,6 +369,7 @@ class GuardianClient:
         start_id: str,
         base_query_params: Dict[str, Any],
         page_size: int,
+        profile: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Yield /next responses until the continuation stream is exhausted.
 
@@ -336,7 +383,7 @@ class GuardianClient:
         """
         current_id: Optional[str] = start_id
         while current_id is not None:
-            response = self._search_next_page(current_id, base_query_params)
+            response = self._search_next_page(current_id, base_query_params, profile=profile)
             results = response.get("results", [])
             if not results:
                 return
@@ -400,7 +447,7 @@ class GuardianClient:
         state = IterationState(remaining=limit)
         last_batch_size = 0
 
-        for response in self._iter_search_responses(request):
+        for response in self._iter_search_responses(request, profile=profile):
             results = response.get("results", [])
             last_batch_size = len(results)
             yield from self._yield_items(results, state)
@@ -417,6 +464,7 @@ class GuardianClient:
             start_id=state.last_id,
             base_query_params=base_query_params,
             page_size=request.page_size,
+            profile=profile,
         ):
             yield from self._yield_items(response.get("results", []), state)
             if state.exhausted:
@@ -474,7 +522,11 @@ class GuardianClient:
             Dict[str, Any]: The `content` object returned by the Guardian API.
         """
         request = self._get_profile_request(profile)
-        return self._get_article_by_id_for_request(request=request, content_id=content_id)
+        return self._get_article_by_id_for_request(
+            request=request,
+            content_id=content_id,
+            profile=profile,
+        )
 
     def get_articles_by_ids(
         self,
@@ -504,6 +556,7 @@ class GuardianClient:
                 article = self._get_article_by_id_for_request(
                     request=request,
                     content_id=content_id,
+                    profile=profile,
                 )
                 items.append(article)
             except Exception as exc:  # pylint: disable=broad-except
@@ -519,6 +572,7 @@ class GuardianClient:
         self,
         request: GuardianProfileConfig,
         content_id: str,
+        profile: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Fetch one content item using a resolved profile configuration."""
         if not content_id:
@@ -530,9 +584,13 @@ class GuardianClient:
             "format": "json",
             "show-fields": request.content_show_fields,
         }
-        payload = self._request_json(f"/{encoded_id}", params)
+        payload = self._request_json(f"/{encoded_id}", params, profile=profile)
         response = self._extract_response_or_raise(payload)
         content = response.get("content")
         if not content:
             raise ValueError("Guardian API single-item response is missing content")
         return content
+
+    def get_usage_counts(self) -> Dict[str, Any]:
+        """Return API usage counters tracked for this client lifecycle."""
+        return self._usage_logger.usage_counts

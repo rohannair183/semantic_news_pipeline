@@ -43,6 +43,8 @@ profiles:
 # - limit_per_profile: optional max number of ids/items fetched per profile.
 # - save_local_checkpoint: write one JSON checkpoint file per profile when true.
 # - checkpoint_dir: local directory for checkpoint files.
+# - enable_usage_logging: write minimal API usage logs when true.
+# - logs_dir: directory for usage log files.
 article_ingestor:
   profiles_to_run:
     - main_daily
@@ -50,6 +52,8 @@ article_ingestor:
   limit_per_profile: 10
   save_local_checkpoint: true
   checkpoint_dir: checkpoints/article_ingestor
+  enable_usage_logging: true
+  logs_dir: logs
 
 # YAML-driven row mappings used by ArticleNormalizer when converting checkpoints
 # into tabular rows. Each output field lists one or more source paths and an
