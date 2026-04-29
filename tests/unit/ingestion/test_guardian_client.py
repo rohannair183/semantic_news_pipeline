@@ -31,8 +31,10 @@ class GuardianClientTestCase(unittest.TestCase):
                 run_date=date(2026, 4, 26),
                 page_size=2,
                 query="technology",
+                section="technology",
                 order_by=GuardianOrderBy.NEWEST,
                 use_next_fallback=True,
+                content_show_fields="headline,bodyText",
             ),
             "science_profile": GuardianProfileConfig(
                 topic="science",
@@ -132,6 +134,12 @@ class TestGuardianClientInit(GuardianClientTestCase):
 
 class TestGuardianClientNormalizeDate(GuardianClientTestCase):
     """This class tests _normalize_date."""
+
+    def test_default_date_uses_utc_today(self):
+        """_normalize_date: uses the UTC helper when no run date is configured."""
+        client = GuardianClient()
+        with patch("src.ingestion.guardian_client.utc_today_date", return_value=date(2026, 4, 26)):
+            self.assertEqual(getattr(client, "_default_date")(), "2026-04-26")
 
     def test_normalize_date_variants_and_errors(self):
         """_normalize_date: supports None/date/datetime/iso string and rejects bad values."""
@@ -254,7 +262,7 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
     """This class tests _build_search_params."""
 
     def test_build_search_params_validation_and_query(self):
-        """_build_search_params: rejects missing topic and supports query/filters."""
+        """_build_search_params: rejects missing topic and uses typed query and section fields."""
         client = GuardianClient()
         build_search_params = getattr(client, "_build_search_params")
         request = GuardianProfileConfig(
@@ -270,15 +278,24 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
             run_date=date(2026, 4, 1),
             page_size=10,
             query="chips",
-            extra_filters={"lang": "en"},
+            section="technology",
             order_by=GuardianOrderBy.OLDEST,
         )
         params = build_search_params(request, page=2)
         self.assertEqual(params["q"], "chips")
-        self.assertEqual(params["lang"], "en")
+        self.assertEqual(params["section"], "technology")
         self.assertEqual(params["page"], 2)
         self.assertEqual(params["order-by"], "oldest")
         self.assertEqual(params["use-date"], "published")
+
+        request = GuardianProfileConfig(
+            topic="science",
+            run_date=date(2026, 4, 1),
+            page_size=10,
+        )
+        params = build_search_params(request, page=1)
+        self.assertEqual(params["q"], "science")
+        self.assertNotIn("section", params)
 
 
 class TestGuardianClientSearchNextPage(GuardianClientTestCase):
@@ -323,30 +340,6 @@ class TestGuardianClientSearchPage(GuardianClientTestCase):
             response = getattr(client, "_search_page")(request=request, page=1)
 
         self.assertEqual(response["status"], "ok")
-
-
-class TestGuardianClientGetArticlesListByTopic(GuardianClientTestCase):
-    """This class tests get_articles_list_by_topic."""
-
-    def test_get_articles_list_by_topic_and_defaults(self):
-        """get_articles_list_by_topic: parses params and returns normalized response."""
-        client = GuardianClient()
-        with patch.object(
-            client,
-            "_search_page",
-            return_value={"total": 3, "currentPage": 1,
-                          "pages": 2, "results": []},
-        ):
-            result = client.get_articles_list_by_topic("tech")
-        self.assertEqual(result["total_available"], 3)
-        self.assertEqual(result["page"], 1)
-
-    def test_get_articles_list_by_topic_rejects_invalid_order_by(self):
-        """get_articles_list_by_topic: raises immediately for unsupported order-by values."""
-        client = GuardianClient()
-        with self.assertRaises(ValueError):
-            client.get_articles_list_by_topic("tech", params={"order-by": "sideways"})
-
 
 class TestGuardianClientIterTopicArticles(GuardianClientTestCase):
     """This class tests iter_topic_articles."""
@@ -501,7 +494,7 @@ class TestGuardianClientGetArticleById(GuardianClientTestCase):
     """This class tests get_article_by_id."""
 
     def test_get_article_by_id_returns_content(self):
-        """get_article_by_id: returns content payload from response."""
+        """get_article_by_id: returns content payload using profile-defined show-fields."""
         client = GuardianClient()
         with patch.object(client, "_request_json") as mock_request:
             mock_request.return_value = {
@@ -510,32 +503,35 @@ class TestGuardianClientGetArticleById(GuardianClientTestCase):
                     "content": {"id": "world/1", "webTitle": "Title"},
                 }
             }
-            article = client.get_article_by_id("world/1")
+            article = client.get_article_by_id(
+                profile="technology_profile",
+                content_id="world/1",
+            )
 
         self.assertEqual(article["id"], "world/1")
         self.assertEqual(article["webTitle"], "Title")
+        mock_request.assert_called_once_with(
+            "/world/1",
+            {
+                "api-key": "test_api_key",
+                "format": "json",
+                "show-fields": "headline,bodyText",
+            },
+        )
 
     def test_get_article_by_id_errors(self):
-        """get_article_by_id: rejects empty ids and missing content payloads."""
+        """get_article_by_id: rejects bad profile inputs and missing content payloads."""
         client = GuardianClient()
 
         with self.assertRaises(ValueError):
-            client.get_article_by_id("")
+            client.get_article_by_id(profile="technology_profile", content_id="")
+
+        with self.assertRaises(ValueError):
+            client.get_article_by_id(profile="missing_profile", content_id="x/y")
 
         with patch.object(client, "_request_json", return_value={"response": {"status": "ok"}}):
             with self.assertRaises(ValueError):
-                client.get_article_by_id("x/y")
-
-        with patch.object(
-            client,
-            "_request_json",
-            return_value={"response": {
-                "status": "ok", "content": {"id": "x"}}},
-        ):
-            content = client.get_article_by_id(
-                "x/y", extra_params={"show-tags": "all"})
-
-        self.assertEqual(content["id"], "x")
+                client.get_article_by_id(profile="technology_profile", content_id="x/y")
 
 
 class TestGuardianClientGetArticlesByIds(GuardianClientTestCase):
@@ -544,14 +540,16 @@ class TestGuardianClientGetArticlesByIds(GuardianClientTestCase):
     def test_get_articles_by_ids_collects_failures(self):
         """get_articles_by_ids: captures per-id failures without aborting the whole batch."""
         client = GuardianClient()
-        with patch.object(client, "get_article_by_id") as mock_get_by_id:
+        with patch.object(client, "_get_article_by_id_for_request") as mock_get_by_id:
             mock_get_by_id.side_effect = [
                 {"id": "world/1"},
                 RuntimeError("boom"),
                 {"id": "world/3"},
             ]
             result = client.get_articles_by_ids(
-                ["world/1", "world/2", "world/3"])
+                profile="technology_profile",
+                content_ids=["world/1", "world/2", "world/3"],
+            )
 
         self.assertEqual(result["fetched_count"], 2)
         self.assertEqual(result["failed_count"], 1)
@@ -560,8 +558,11 @@ class TestGuardianClientGetArticlesByIds(GuardianClientTestCase):
     def test_get_articles_by_ids_all_success(self):
         """get_articles_by_ids: success path returns expected counters."""
         client = GuardianClient()
-        with patch.object(client, "get_article_by_id", return_value={"id": "ok"}):
-            result = client.get_articles_by_ids(["a"])
+        with patch.object(client, "_get_article_by_id_for_request", return_value={"id": "ok"}):
+            result = client.get_articles_by_ids(
+                profile="technology_profile",
+                content_ids=["a"],
+            )
         self.assertEqual(result["fetched_count"], 1)
         self.assertEqual(result["failed_count"], 0)
 

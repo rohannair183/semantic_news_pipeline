@@ -313,9 +313,10 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
                         "run_date": "2026-04-28",
                         "page_size": 3,
                         "query": "chips",
-                        "extra_filters": {"section": "technology"},
+                        "section": "technology",
                         "order_by": "oldest",
                         "use_next_fallback": False,
+                        "content_show_fields": "headline,bodyText",
                     }
                 },
             }
@@ -329,11 +330,12 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
         self.assertEqual(profile.topic, "technology")
         self.assertEqual(profile.page_size, 3)
         self.assertEqual(profile.order_by, GuardianOrderBy.OLDEST)
-        self.assertEqual(profile.extra_filters, {"section": "technology"})
+        self.assertEqual(profile.section, "technology")
         self.assertFalse(profile.use_next_fallback)
+        self.assertEqual(profile.content_show_fields, "headline,bodyText")
 
-    def test_load_guardian_profile_configs_allows_none_extra_filters(self):
-        """load_guardian_profile_configs: converts null extra_filters into an empty mapping."""
+    def test_load_guardian_profile_configs_defaults_optional_fields(self):
+        """load_guardian_profile_configs: defaults optional profile fields when they are absent."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             raw_config = {
@@ -344,7 +346,6 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
                 "profiles": {
                     "technology_daily": {
                         "topic": "technology",
-                        "extra_filters": None,
                     }
                 },
             }
@@ -354,7 +355,9 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
             ):
                 typed_profiles = Settings.load_guardian_profile_configs(configuration_root=root)
 
-        self.assertEqual(typed_profiles["technology_daily"].extra_filters, {})
+        self.assertIsNone(typed_profiles["technology_daily"].query)
+        self.assertIsNone(typed_profiles["technology_daily"].section)
+        self.assertEqual(typed_profiles["technology_daily"].content_show_fields, "all")
 
     def test_load_guardian_profile_configs_raises_for_missing_profiles(self):
         """load_guardian_profile_configs: raises when profiles is empty or missing."""
@@ -456,8 +459,8 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Settings.load_guardian_profile_configs(configuration_root=root)
 
-    def test_load_guardian_profile_configs_raises_for_invalid_extra_filters(self):
-        """load_guardian_profile_configs: raises when extra_filters is not a mapping."""
+    def test_load_guardian_profile_configs_raises_for_unknown_keys(self):
+        """load_guardian_profile_configs: raises when unsupported profile keys are present."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             raw_config = {
@@ -468,7 +471,7 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
                 "profiles": {
                     "technology_daily": {
                         "topic": "technology",
-                        "extra_filters": "invalid",
+                        "extra_filters": {"section": "technology"},
                     }
                 },
             }
@@ -478,6 +481,32 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
             ):
                 with self.assertRaises(ValueError):
                     Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_raises_for_invalid_string_fields(self):
+        """load_guardian_profile_configs: raises for invalid typed string fields."""
+        invalid_profiles = [
+            {"topic": 123},
+            {"topic": "technology", "query": 123},
+            {"topic": "technology", "section": ""},
+            {"topic": "technology", "content_show_fields": 5},
+        ]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            for raw_profile in invalid_profiles:
+                raw_config = {
+                    "base_url": "https://content.guardianapis.com",
+                    "default_page_size": 10,
+                    "max_page_size": 50,
+                    "timeout_seconds": 30,
+                    "profiles": {"technology_daily": raw_profile},
+                }
+                with self.subTest(raw_profile=raw_profile), patch(
+                    "src.config.settings.Settings.load_ingestion_config_from_root",
+                    return_value=raw_config,
+                ):
+                    with self.assertRaises(ValueError):
+                        Settings.load_guardian_profile_configs(configuration_root=root)
 
     def test_load_guardian_profile_configs_raises_for_invalid_page_size_settings(self):
         """load_guardian_profile_configs: raises when global page-size settings are invalid."""

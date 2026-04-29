@@ -13,7 +13,6 @@ from urllib.parse import quote
 import requests
 
 from src.config.settings import GuardianProfileConfig, Settings
-from src.enums.guardian_order_by import GuardianOrderBy
 from src.enums.guardian_use_date import GuardianUseDate
 from src.utils.dates import coerce_day, format_day_iso, utc_today_date
 
@@ -230,21 +229,21 @@ class GuardianClient:
         if not request.topic:
             raise ValueError("topic must not be empty")
 
+        normalized_date = self._normalize_date(request.run_date)
+        query = request.query or request.topic
         params: Dict[str, Any] = {
             "api-key": self.api_key,
             "format": "json",
-            "q": request.topic,
-            "from-date": self._normalize_date(request.run_date),
-            "to-date": self._normalize_date(request.run_date),
+            "q": query,
+            "from-date": normalized_date,
+            "to-date": normalized_date,
             "use-date": GuardianUseDate.PUBLISHED.value,
             "page": page,
             "page-size": self._validate_page_size(request.page_size),
             "order-by": request.order_by.value,
         }
-        if request.query:
-            params["q"] = request.query
-        if request.extra_filters:
-            params.update(request.extra_filters)
+        if request.section:
+            params["section"] = request.section
         return params
 
     def _search_page(self, request: GuardianProfileConfig, page: int) -> Dict[str, Any]:
@@ -371,50 +370,6 @@ class GuardianClient:
                     state.exhausted = True
                     return
 
-    def get_articles_list_by_topic(
-        self,
-        topic: str,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Fetch one topic list response using ad-hoc params for compatibility.
-
-        Use this when you need a single page result for an arbitrary topic without
-        relying on a configured YAML profile.
-
-        Parameters:
-            topic: Topic string to search for.
-            params: Optional mapping of ad-hoc query parameters.
-
-        Returns:
-            Dict[str, Any]: Summary dict containing topic, date, pagination and items.
-        """
-        payload = params.copy() if params else {}
-        page = int(payload.pop("page", 1))
-        order_by = GuardianOrderBy.from_value(
-            str(payload.pop("order-by", GuardianOrderBy.NEWEST.value))
-        )
-        raw_run_date = payload.pop("run_date", payload.pop("date", None))
-        request = GuardianProfileConfig(
-            topic=topic,
-            run_date=None if raw_run_date is None else coerce_day(raw_run_date),
-            page_size=self._validate_page_size(
-                int(payload.pop("page-size", payload.pop("page_size", self.default_page_size)))
-            ),
-            query=payload.pop("q", None),
-            extra_filters=payload,
-            order_by=order_by,
-            use_next_fallback=True,
-        )
-        response = self._search_page(request, page=page)
-        return {
-            "topic": topic,
-            "date": self._normalize_date(request.run_date),
-            "total_available": response.get("total", 0),
-            "page": response.get("currentPage", page),
-            "pages": response.get("pages", 0),
-            "items": response.get("results", []),
-        }
-
     def iter_topic_articles(
         self,
         profile: str,
@@ -497,45 +452,28 @@ class GuardianClient:
 
     def get_article_by_id(
         self,
+        profile: str,
         content_id: str,
-        show_fields: str = "all",
-        extra_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Fetch a full single content item by its Guardian content id.
+        """Fetch a full single content item using a configured profile.
 
         Use this to retrieve the content object for a single Guardian
-        content id when you need full article fields.
+        content id when you need full article fields driven by YAML settings.
 
         Parameters:
+            profile: Configured profile name that controls detail fetch settings.
             content_id: Guardian content id string to fetch (e.g. 'world/2020/...').
-            show_fields: Comma-separated field names or 'all' to include in the response.
-            extra_params: Additional query parameters to send to the API.
 
         Returns:
             Dict[str, Any]: The `content` object returned by the Guardian API.
         """
-        if not content_id:
-            raise ValueError("content_id must not be empty")
-        encoded_id = quote(content_id, safe="/")
-        params: Dict[str, Any] = {
-            "api-key": self.api_key,
-            "format": "json",
-            "show-fields": show_fields,
-        }
-        if extra_params:
-            params.update(extra_params)
-        payload = self._request_json(f"/{encoded_id}", params)
-        response = self._extract_response_or_raise(payload)
-        content = response.get("content")
-        if not content:
-            raise ValueError("Guardian API single-item response is missing content")
-        return content
+        request = self._get_profile_request(profile)
+        return self._get_article_by_id_for_request(request=request, content_id=content_id)
 
     def get_articles_by_ids(
         self,
+        profile: str,
         content_ids: List[str],
-        show_fields: str = "all",
-        extra_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Fetch many articles by id and collect successes and failures.
 
@@ -545,22 +483,21 @@ class GuardianClient:
         the whole operation.
 
         Parameters:
+            profile: Configured profile name that controls detail fetch settings.
             content_ids: List of Guardian content id strings to fetch.
-            show_fields: Comma-separated field names or 'all' to include in each response.
-            extra_params: Additional query parameters to include with each request.
 
         Returns:
             Dict[str, Any]: A summary containing `fetched_count`, `failed_count`,
                 `items` and `failures`.
         """
+        request = self._get_profile_request(profile)
         items: List[Dict[str, Any]] = []
         failures: List[Dict[str, Any]] = []
         for content_id in content_ids:
             try:
-                article = self.get_article_by_id(
+                article = self._get_article_by_id_for_request(
+                    request=request,
                     content_id=content_id,
-                    show_fields=show_fields,
-                    extra_params=extra_params,
                 )
                 items.append(article)
             except Exception as exc:  # pylint: disable=broad-except
@@ -571,3 +508,25 @@ class GuardianClient:
             "items": items,
             "failures": failures,
         }
+
+    def _get_article_by_id_for_request(
+        self,
+        request: GuardianProfileConfig,
+        content_id: str,
+    ) -> Dict[str, Any]:
+        """Fetch one content item using a resolved profile configuration."""
+        if not content_id:
+            raise ValueError("content_id must not be empty")
+
+        encoded_id = quote(content_id, safe="/")
+        params: Dict[str, Any] = {
+            "api-key": self.api_key,
+            "format": "json",
+            "show-fields": request.content_show_fields,
+        }
+        payload = self._request_json(f"/{encoded_id}", params)
+        response = self._extract_response_or_raise(payload)
+        content = response.get("content")
+        if not content:
+            raise ValueError("Guardian API single-item response is missing content")
+        return content

@@ -160,6 +160,14 @@ class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
         self.assertEqual(result["fetched_count"], 1)
         self.assertEqual(result["failed_count"], 2)
         self.assertEqual(result["items"][0]["id"], "article-1")
+        client.get_article_by_id.assert_any_call(
+            profile="technology_daily",
+            content_id="article-1",
+        )
+        client.get_article_by_id.assert_any_call(
+            profile="technology_daily",
+            content_id="article-2",
+        )
         self.assertEqual(result["failures"][0]["id"], "article-2")
         self.assertEqual(result["failures"][1]["error"], "Missing id in topic search result")
 

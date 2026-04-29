@@ -9,18 +9,21 @@ timeout_seconds: 30
 #   run_date (optional): date|string|datetime - date to search (YYYY-MM-DD) or datetime; defaults to today UTC.
 #   page_size (optional): int - number of items per page (1..max_page_size); defaults to `default_page_size`.
 #   query (optional): string - full query string to send as `q` (overrides `topic` when present).
-#   extra_filters (optional): mapping - additional query params to include in the request (e.g. {'section': 'science'}).
+#   section (optional): string - Guardian section filter to apply to search requests.
 #   order_by (optional): string - ordering value for results (default: "newest").
 #   use_next_fallback (optional): bool - if true, use /content/{id}/next deep-pagination when /search pages are exhausted.
+#   content_show_fields (optional): string - comma-separated `show-fields` value used for article detail fetches (default: "all").
 profiles:
   technology_daily:
     topic: "technology"
     order_by: "newest"
     use_next_fallback: true
+    content_show_fields: "all"
   science_daily:
     topic: "science"
     order_by: "newest"
     use_next_fallback: true
+    content_show_fields: "all"
 
 # Optional article ingestor orchestration settings.
 # - profiles_to_run: if provided, only these profile names are ingested.

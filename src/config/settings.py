@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
@@ -284,21 +284,18 @@ class Settings:
         if not isinstance(raw_profile, dict):
             raise ValueError(f"Profile '{profile_name}' must be a mapping")
 
-        topic = raw_profile.get("topic")
-        if not topic:
-            raise ValueError(f"Profile '{profile_name}' is missing required 'topic'")
+        cls._validate_guardian_profile_keys(profile_name, raw_profile)
+        topic = cls._load_required_profile_string(
+            profile_name=profile_name,
+            raw_profile=raw_profile,
+            field_name="topic",
+        )
 
         raw_page_size = raw_profile.get("page_size", default_page_size)
         page_size = cls._validate_page_size(
             page_size=int(raw_page_size),
             max_page_size=max_page_size,
         )
-
-        extra_filters = raw_profile.get("extra_filters", {})
-        if extra_filters is None:
-            extra_filters = {}
-        if not isinstance(extra_filters, dict):
-            raise ValueError(f"Profile '{profile_name}' field 'extra_filters' must be a mapping")
 
         use_next_fallback = raw_profile.get("use_next_fallback", True)
         if not isinstance(use_next_fallback, bool):
@@ -316,16 +313,82 @@ class Settings:
         resolved_run_date = (
             None if raw_run_date is None else cls._coerce_profile_run_date(raw_run_date)
         )
-
         return GuardianProfileConfig(
-            topic=str(topic),
+            topic=topic,
             run_date=resolved_run_date,
             page_size=page_size,
-            query=None if raw_profile.get("query") is None else str(raw_profile.get("query")),
-            extra_filters=dict(extra_filters),
+            query=cls._load_optional_profile_string(
+                profile_name=profile_name,
+                raw_profile=raw_profile,
+                field_name="query",
+            ),
+            section=cls._load_optional_profile_string(
+                profile_name=profile_name,
+                raw_profile=raw_profile,
+                field_name="section",
+            ),
             order_by=order_by,
             use_next_fallback=use_next_fallback,
+            content_show_fields=cls._load_optional_profile_string(
+                profile_name=profile_name,
+                raw_profile=raw_profile,
+                field_name="content_show_fields",
+                default="all",
+            ),
         )
+
+    @staticmethod
+    def _validate_guardian_profile_keys(
+        profile_name: str,
+        raw_profile: dict[Any, Any],
+    ) -> None:
+        allowed_keys = {
+            "topic",
+            "run_date",
+            "page_size",
+            "query",
+            "section",
+            "order_by",
+            "use_next_fallback",
+            "content_show_fields",
+        }
+        unknown_keys = sorted(
+            str(key) for key in raw_profile.keys() if str(key) not in allowed_keys
+        )
+        if unknown_keys:
+            unknown_values = ", ".join(unknown_keys)
+            raise ValueError(
+                f"Profile '{profile_name}' defines unsupported fields: {unknown_values}"
+            )
+
+    @staticmethod
+    def _load_required_profile_string(
+        profile_name: str,
+        raw_profile: dict[str, Any],
+        field_name: str,
+    ) -> str:
+        raw_value = raw_profile.get(field_name)
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            raise ValueError(
+                f"Profile '{profile_name}' field '{field_name}' must be a non-empty string"
+            )
+        return raw_value
+
+    @staticmethod
+    def _load_optional_profile_string(
+        profile_name: str,
+        raw_profile: dict[str, Any],
+        field_name: str,
+        default: Optional[str] = None,
+    ) -> Optional[str]:
+        raw_value = raw_profile.get(field_name, default)
+        if raw_value is None:
+            return None
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            raise ValueError(
+                f"Profile '{profile_name}' field '{field_name}' must be a non-empty string"
+            )
+        return raw_value
 
     @staticmethod
     def _coerce_profile_run_date(raw_run_date: Any) -> date:
@@ -476,13 +539,14 @@ class ArticleRowMappingConfig:
 
 
 @dataclass(frozen=True)
-class GuardianProfileConfig:
+class GuardianProfileConfig:  # pylint: disable=too-many-instance-attributes
     """Resolved query settings for a named Guardian search profile."""
 
     topic: str
     run_date: Optional[date]
     page_size: int
     query: Optional[str] = None
-    extra_filters: Dict[str, Any] = field(default_factory=dict)
+    section: Optional[str] = None
     order_by: GuardianOrderBy = GuardianOrderBy.NEWEST
     use_next_fallback: bool = True
+    content_show_fields: str = "all"

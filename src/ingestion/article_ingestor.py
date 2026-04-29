@@ -54,7 +54,10 @@ class ArticleIngestor:
                 failures.append({"id": "", "error": "Missing id in topic search result"})
                 continue
             try:
-                full_item = self.client.get_article_by_id(content_id=str(content_id))
+                full_item = self.client.get_article_by_id(
+                    profile=profile,
+                    content_id=str(content_id),
+                )
                 items.append(full_item)
             except Exception as exc:  # pylint: disable=broad-except
                 failures.append({"id": str(content_id), "error": str(exc)})
