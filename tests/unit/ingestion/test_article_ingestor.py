@@ -135,6 +135,11 @@ class TestArticleIngestorProfilesToRun(unittest.TestCase):
 class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
     """This class tests collect_profile_articles."""
 
+    @staticmethod
+    def _set_seen_ids(article_ingestor: ArticleIngestor, ids: set[str]) -> None:
+        """Seed seen ids for dedupe-focused test cases."""
+        article_ingestor._seen_ids = ids  # pylint: disable=protected-access
+
     def test_collect_profile_articles_handles_successes_and_failures(self):
         """collect_profile_articles: collects full items and records failures."""
         article_ingestor = _build_article_ingestor()
@@ -178,7 +183,7 @@ class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
     def test_collect_profile_articles_skips_existing_ids(self):
         """collect_profile_articles: skips detail fetches for previously ingested ids."""
         article_ingestor = _build_article_ingestor()
-        article_ingestor._seen_ids = {"article-1"}
+        self._set_seen_ids(article_ingestor, {"article-1"})
         client = Mock()
         client.iter_topic_articles.return_value = [{"id": "article-1"}, {"id": "article-2"}]
         client.get_article_by_id.return_value = {"id": "article-2"}
@@ -197,7 +202,7 @@ class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
     def test_collect_profile_articles_limit_counts_only_newly_fetched_items(self):
         """collect_profile_articles: applies limit to newly fetched items, not skipped ids."""
         article_ingestor = _build_article_ingestor()
-        article_ingestor._seen_ids = {"article-1", "article-2"}
+        self._set_seen_ids(article_ingestor, {"article-1", "article-2"})
         client = Mock()
         client.iter_topic_articles.return_value = [
             {"id": "article-1"},
@@ -228,7 +233,7 @@ class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
     def test_collect_profile_articles_skips_ids_seen_in_other_profiles(self):
         """collect_profile_articles: skips ids already ingested globally across profiles."""
         article_ingestor = _build_article_ingestor()
-        article_ingestor._seen_ids = {"shared-article"}
+        self._set_seen_ids(article_ingestor, {"shared-article"})
         client = Mock()
         client.iter_topic_articles.return_value = [{"id": "shared-article"}, {"id": "new-article"}]
         client.get_article_by_id.return_value = {"id": "new-article"}
@@ -335,6 +340,55 @@ class TestArticleIngestorIdManifestPath(unittest.TestCase):
             self.article_ingestor.id_manifest_path,
             Path("checkpoints/ingested_ids/ingested_ids.json"),
         )
+
+
+class TestArticleIngestorIdManifestPersistence(unittest.TestCase):
+    """This class tests ingested id manifest persistence helpers."""
+
+    def test_load_ingested_id_manifest_returns_empty_for_non_list_ids(self):
+        """_load_ingested_id_manifest: returns empty set when ids payload is malformed."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            article_ingestor = _build_article_ingestor(
+                {
+                    "profiles": {"technology_daily": {"topic": "technology"}},
+                    "article_ingestor": {
+                        "save_local_checkpoint": True,
+                        "checkpoint_dir": str(Path(temp_directory) / "article_ingestor"),
+                    },
+                }
+            )
+            manifest_path = Path(temp_directory) / "ingested_ids" / "ingested_ids.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            with manifest_path.open("w", encoding="utf-8") as output_file:
+                json.dump({"ids": {"invalid": True}}, output_file)
+
+            loaded_ids = article_ingestor._load_ingested_id_manifest()  # pylint: disable=protected-access
+
+            self.assertEqual(loaded_ids, set())
+
+    def test_write_ingested_id_manifest_writes_global_sorted_ids(self):
+        """_write_ingested_id_manifest: writes ids as one sorted global list."""
+        with tempfile.TemporaryDirectory() as temp_directory:
+            article_ingestor = _build_article_ingestor(
+                {
+                    "profiles": {"technology_daily": {"topic": "technology"}},
+                    "article_ingestor": {
+                        "save_local_checkpoint": True,
+                        "checkpoint_dir": str(Path(temp_directory) / "article_ingestor"),
+                    },
+                }
+            )
+            article_ingestor.run_timestamp = "20260429T000000Z"
+
+            manifest_file = article_ingestor._write_ingested_id_manifest(  # pylint: disable=protected-access
+                {"b", "a"}
+            )
+
+            self.assertIsNotNone(manifest_file)
+            with Path(str(manifest_file)).open("r", encoding="utf-8") as input_file:
+                payload = json.load(input_file)
+            self.assertEqual(payload["updated_at"], "20260429T000000Z")
+            self.assertEqual(payload["ids"], ["a", "b"])
 
 
 class TestArticleIngestorWriteProfileCheckpoint(unittest.TestCase):

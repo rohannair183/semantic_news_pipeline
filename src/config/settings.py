@@ -287,45 +287,32 @@ class Settings:
             raise ValueError(f"Profile '{profile_name}' must be a mapping")
 
         cls._validate_guardian_profile_keys(profile_name, raw_profile)
-        raw_topic = raw_profile.get("topic", "")
-        if not isinstance(raw_topic, str):
-            raise ValueError(
-                f"Profile '{profile_name}' field 'topic' must be a string when provided"
-            )
-        topic = raw_topic
-
-        raw_page_size = raw_profile.get("page_size", default_page_size)
-        page_size = cls._validate_page_size(
-            page_size=int(raw_page_size),
+        topic = cls._load_profile_topic(profile_name=profile_name, raw_profile=raw_profile)
+        page_size = cls._load_profile_page_size(
+            raw_profile=raw_profile,
+            default_page_size=default_page_size,
             max_page_size=max_page_size,
         )
-
-        use_next_fallback = raw_profile.get("use_next_fallback", True)
-        if not isinstance(use_next_fallback, bool):
-            raise ValueError(
-                f"Profile '{profile_name}' field 'use_next_fallback' must be a boolean"
-            )
-
-        raw_order_by = raw_profile.get("order_by", GuardianOrderBy.NEWEST.value)
-        try:
-            order_by = GuardianOrderBy.from_value(str(raw_order_by))
-        except ValueError as exc:
-            raise ValueError(f"Profile '{profile_name}' field 'order_by': {exc}") from exc
-
-        raw_run_date = raw_profile.get("run_date")
-        resolved_run_date = (
-            None if raw_run_date is None else cls._coerce_profile_run_date(raw_run_date)
+        use_next_fallback = cls._load_profile_use_next_fallback(
+            profile_name=profile_name,
+            raw_profile=raw_profile,
         )
-        profile_from_date, profile_to_date = cls._resolve_profile_date_window(
+        order_by = cls._load_profile_order_by(profile_name=profile_name, raw_profile=raw_profile)
+        resolved_run_date = cls._load_profile_run_date(raw_profile=raw_profile)
+        from_date, to_date = cls._resolve_profile_date_window(
             profile_name=profile_name,
             raw_profile=raw_profile,
             raw_run_date=resolved_run_date,
         )
+        content_show_fields = cls._load_profile_content_show_fields(
+            profile_name=profile_name,
+            raw_profile=raw_profile,
+        )
         return GuardianProfileConfig(
             topic=topic,
             run_date=resolved_run_date,
-            from_date=profile_from_date,
-            to_date=profile_to_date,
+            from_date=from_date,
+            to_date=to_date,
             page_size=page_size,
             query=cls._load_optional_profile_string(
                 profile_name=profile_name,
@@ -340,13 +327,76 @@ class Settings:
             ),
             order_by=order_by,
             use_next_fallback=use_next_fallback,
-            content_show_fields=cls._load_optional_profile_string(
-                profile_name=profile_name,
-                raw_profile=raw_profile,
-                field_name="content_show_fields",
-                default="all",
-            ),
+            content_show_fields=content_show_fields,
         )
+
+    @staticmethod
+    def _load_profile_topic(profile_name: str, raw_profile: dict[str, Any]) -> str:
+        raw_topic = raw_profile.get("topic", "")
+        if not isinstance(raw_topic, str):
+            raise ValueError(
+                f"Profile '{profile_name}' field 'topic' must be a string when provided"
+            )
+        return raw_topic
+
+    @classmethod
+    def _load_profile_page_size(
+        cls,
+        raw_profile: dict[str, Any],
+        default_page_size: int,
+        max_page_size: int,
+    ) -> int:
+        raw_page_size = raw_profile.get("page_size", default_page_size)
+        return cls._validate_page_size(
+            page_size=int(raw_page_size),
+            max_page_size=max_page_size,
+        )
+
+    @staticmethod
+    def _load_profile_use_next_fallback(
+        profile_name: str,
+        raw_profile: dict[str, Any],
+    ) -> bool:
+        use_next_fallback = raw_profile.get("use_next_fallback", True)
+        if not isinstance(use_next_fallback, bool):
+            raise ValueError(
+                f"Profile '{profile_name}' field 'use_next_fallback' must be a boolean"
+            )
+        return use_next_fallback
+
+    @staticmethod
+    def _load_profile_order_by(
+        profile_name: str,
+        raw_profile: dict[str, Any],
+    ) -> GuardianOrderBy:
+        raw_order_by = raw_profile.get("order_by", GuardianOrderBy.NEWEST.value)
+        try:
+            return GuardianOrderBy.from_value(str(raw_order_by))
+        except ValueError as exc:
+            raise ValueError(f"Profile '{profile_name}' field 'order_by': {exc}") from exc
+
+    @classmethod
+    def _load_profile_run_date(cls, raw_profile: dict[str, Any]) -> Optional[date]:
+        raw_run_date = raw_profile.get("run_date")
+        if raw_run_date is None:
+            return None
+        return cls._coerce_profile_run_date(raw_run_date)
+
+    @classmethod
+    def _load_profile_content_show_fields(
+        cls,
+        profile_name: str,
+        raw_profile: dict[str, Any],
+    ) -> str:
+        content_show_fields = cls._load_optional_profile_string(
+            profile_name=profile_name,
+            raw_profile=raw_profile,
+            field_name="content_show_fields",
+            default="all",
+        )
+        if content_show_fields is None:
+            return "all"
+        return content_show_fields
 
     @staticmethod
     def _validate_guardian_profile_keys(
@@ -443,7 +493,9 @@ class Settings:
         if raw_run_date is not None:
             return raw_run_date, raw_run_date
 
-        profile_from_date = None if raw_from_date is None else cls._coerce_profile_run_date(raw_from_date)
+        profile_from_date = (
+            None if raw_from_date is None else cls._coerce_profile_run_date(raw_from_date)
+        )
         profile_to_date = None if raw_to_date is None else cls._coerce_profile_run_date(raw_to_date)
         if profile_from_date is None and profile_to_date is None:
             return None, None
@@ -487,7 +539,9 @@ class Settings:
             try:
                 relative = IngestionTimeframeRelative.from_value(raw_relative)
             except ValueError as exc:
-                raise ValueError(f"Ingestion config field '{field_prefix}.relative': {exc}") from exc
+                raise ValueError(
+                    f"Ingestion config field '{field_prefix}.relative': {exc}"
+                ) from exc
             return cls._build_relative_timeframe(relative)
 
         raw_from_date = raw_timeframe.get("from_date")

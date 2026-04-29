@@ -544,13 +544,13 @@ class TestArticleNormalizerIntegration(IngestionPipelineIntegrationTestCase):
         self._set_transport(
             search_payloads={
                 ("chips", 1): _build_search_response(
-                    [{"id": "technology/article-1"}]
+                    [{"id": "technology/article-2"}]
                 ),
                 ("science", 1): _build_search_response([]),
             },
             detail_payloads={
-                "technology/article-1": _build_article(
-                    "technology/article-1",
+                "technology/article-2": _build_article(
+                    "technology/article-2",
                     "New Technology Title",
                     "technology_daily",
                     metadata={
