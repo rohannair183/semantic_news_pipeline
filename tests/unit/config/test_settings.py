@@ -4,6 +4,7 @@
 import os
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -334,6 +335,59 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
         self.assertFalse(profile.use_next_fallback)
         self.assertEqual(profile.content_show_fields, "headline,bodyText")
 
+    def test_load_guardian_profile_configs_parses_profile_timeframe_override(self):
+        """load_guardian_profile_configs: parses per-profile timeframe overrides."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "timeframe": {
+                            "mode": "explicit",
+                            "from_date": "2026-04-20",
+                            "to_date": "2026-04-28",
+                        },
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_profiles = Settings.load_guardian_profile_configs(configuration_root=root)
+        profile = typed_profiles["technology_daily"]
+        self.assertEqual(profile.from_date, date(2026, 4, 20))
+        self.assertEqual(profile.to_date, date(2026, 4, 28))
+
+    def test_load_guardian_profile_configs_rejects_mixed_timeframe_fields(self):
+        """load_guardian_profile_configs: rejects mixing timeframe with run_date/from_date/to_date."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "run_date": "2026-04-28",
+                        "timeframe": {"mode": "relative", "relative": "past_week"},
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_guardian_profile_configs(configuration_root=root)
+
     def test_load_guardian_profile_configs_defaults_optional_fields(self):
         """load_guardian_profile_configs: defaults optional profile fields when they are absent."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -395,8 +449,8 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Settings.load_guardian_profile_configs(configuration_root=root)
 
-    def test_load_guardian_profile_configs_raises_for_missing_topic(self):
-        """load_guardian_profile_configs: raises when a profile has no topic."""
+    def test_load_guardian_profile_configs_allows_missing_topic(self):
+        """load_guardian_profile_configs: allows global ingestion profiles without topic."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             raw_config = {
@@ -410,8 +464,8 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
                 "src.config.settings.Settings.load_ingestion_config_from_root",
                 return_value=raw_config,
             ):
-                with self.assertRaises(ValueError):
-                    Settings.load_guardian_profile_configs(configuration_root=root)
+                typed_profiles = Settings.load_guardian_profile_configs(configuration_root=root)
+        self.assertEqual(typed_profiles["technology_daily"].topic, "")
 
     def test_load_guardian_profile_configs_raises_for_invalid_order_by(self):
         """load_guardian_profile_configs: raises when order_by is unsupported."""
@@ -487,7 +541,6 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
         invalid_profiles = [
             {"topic": 123},
             {"topic": "technology", "query": 123},
-            {"topic": "technology", "section": ""},
             {"topic": "technology", "content_show_fields": 5},
         ]
 
@@ -507,6 +560,29 @@ class TestSettingsLoadGuardianProfileConfigs(unittest.TestCase):
                 ):
                     with self.assertRaises(ValueError):
                         Settings.load_guardian_profile_configs(configuration_root=root)
+
+    def test_load_guardian_profile_configs_allows_empty_section(self):
+        """load_guardian_profile_configs: allows empty section strings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "base_url": "https://content.guardianapis.com",
+                "default_page_size": 10,
+                "max_page_size": 50,
+                "timeout_seconds": 30,
+                "profiles": {
+                    "technology_daily": {
+                        "topic": "technology",
+                        "section": "",
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_profiles = Settings.load_guardian_profile_configs(configuration_root=root)
+        self.assertEqual(typed_profiles["technology_daily"].section, "")
 
     def test_load_guardian_profile_configs_raises_for_invalid_page_size_settings(self):
         """load_guardian_profile_configs: raises when global page-size settings are invalid."""

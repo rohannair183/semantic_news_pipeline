@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
 
@@ -12,8 +12,10 @@ from src.config.yaml_config_parser import YAMLConfigParser
 from src.enums.article_row_source_kind import ArticleRowSourceKind
 from src.enums.article_row_transform import ArticleRowTransform
 from src.enums.guardian_order_by import GuardianOrderBy
+from src.enums.ingestion_timeframe_mode import IngestionTimeframeMode
+from src.enums.ingestion_timeframe_relative import IngestionTimeframeRelative
 from src.enums.yaml_config_type import YAMLConfigType
-from src.utils.dates import coerce_day
+from src.utils.dates import coerce_day, utc_today_date
 
 
 @dataclass(frozen=True)
@@ -285,11 +287,12 @@ class Settings:
             raise ValueError(f"Profile '{profile_name}' must be a mapping")
 
         cls._validate_guardian_profile_keys(profile_name, raw_profile)
-        topic = cls._load_required_profile_string(
-            profile_name=profile_name,
-            raw_profile=raw_profile,
-            field_name="topic",
-        )
+        raw_topic = raw_profile.get("topic", "")
+        if not isinstance(raw_topic, str):
+            raise ValueError(
+                f"Profile '{profile_name}' field 'topic' must be a string when provided"
+            )
+        topic = raw_topic
 
         raw_page_size = raw_profile.get("page_size", default_page_size)
         page_size = cls._validate_page_size(
@@ -313,9 +316,16 @@ class Settings:
         resolved_run_date = (
             None if raw_run_date is None else cls._coerce_profile_run_date(raw_run_date)
         )
+        profile_from_date, profile_to_date = cls._resolve_profile_date_window(
+            profile_name=profile_name,
+            raw_profile=raw_profile,
+            raw_run_date=resolved_run_date,
+        )
         return GuardianProfileConfig(
             topic=topic,
             run_date=resolved_run_date,
+            from_date=profile_from_date,
+            to_date=profile_to_date,
             page_size=page_size,
             query=cls._load_optional_profile_string(
                 profile_name=profile_name,
@@ -326,6 +336,7 @@ class Settings:
                 profile_name=profile_name,
                 raw_profile=raw_profile,
                 field_name="section",
+                allow_empty=True,
             ),
             order_by=order_by,
             use_next_fallback=use_next_fallback,
@@ -345,6 +356,9 @@ class Settings:
         allowed_keys = {
             "topic",
             "run_date",
+            "from_date",
+            "to_date",
+            "timeframe",
             "page_size",
             "query",
             "section",
@@ -380,15 +394,126 @@ class Settings:
         raw_profile: dict[str, Any],
         field_name: str,
         default: Optional[str] = None,
+        allow_empty: bool = False,
     ) -> Optional[str]:
         raw_value = raw_profile.get(field_name, default)
         if raw_value is None:
             return None
-        if not isinstance(raw_value, str) or not raw_value.strip():
+        if not isinstance(raw_value, str):
+            raise ValueError(
+                f"Profile '{profile_name}' field '{field_name}' must be a non-empty string"
+            )
+        if not allow_empty and not raw_value.strip():
             raise ValueError(
                 f"Profile '{profile_name}' field '{field_name}' must be a non-empty string"
             )
         return raw_value
+
+    @classmethod
+    def _resolve_profile_date_window(
+        cls,
+        profile_name: str,
+        raw_profile: dict[str, Any],
+        raw_run_date: Optional[date],
+    ) -> tuple[Optional[date], Optional[date]]:
+        raw_from_date = raw_profile.get("from_date")
+        raw_to_date = raw_profile.get("to_date")
+        raw_timeframe = raw_profile.get("timeframe")
+        if raw_timeframe is not None and not isinstance(raw_timeframe, dict):
+            raise ValueError(f"Profile '{profile_name}' field 'timeframe' must be a mapping")
+        if raw_timeframe is not None and (
+            raw_run_date is not None or raw_from_date is not None or raw_to_date is not None
+        ):
+            raise ValueError(
+                f"Profile '{profile_name}' cannot define timeframe with run_date/from_date/to_date"
+            )
+        if raw_run_date is not None and (raw_from_date is not None or raw_to_date is not None):
+            raise ValueError(
+                f"Profile '{profile_name}' cannot define run_date with from_date/to_date"
+            )
+
+        if raw_timeframe is not None:
+            timeframe = cls._load_timeframe(
+                raw_timeframe=raw_timeframe,
+                field_prefix=f"profiles.{profile_name}.timeframe",
+                default_relative=None,
+            )
+            return timeframe.from_date, timeframe.to_date
+
+        if raw_run_date is not None:
+            return raw_run_date, raw_run_date
+
+        profile_from_date = None if raw_from_date is None else cls._coerce_profile_run_date(raw_from_date)
+        profile_to_date = None if raw_to_date is None else cls._coerce_profile_run_date(raw_to_date)
+        if profile_from_date is None and profile_to_date is None:
+            return None, None
+        if profile_from_date is None or profile_to_date is None:
+            raise ValueError(
+                f"Profile '{profile_name}' must define both from_date and to_date together"
+            )
+        if profile_from_date > profile_to_date:
+            raise ValueError(
+                f"Profile '{profile_name}' field 'from_date' must be <= 'to_date'"
+            )
+        return profile_from_date, profile_to_date
+
+    @classmethod
+    def _load_timeframe(
+        cls,
+        raw_timeframe: Any,
+        field_prefix: str,
+        default_relative: Optional[IngestionTimeframeRelative],
+    ) -> "IngestionTimeframe":
+        if raw_timeframe is None:
+            if default_relative is None:
+                raise ValueError(f"Ingestion config field '{field_prefix}' must be provided")
+            return cls._build_relative_timeframe(default_relative)
+        if not isinstance(raw_timeframe, dict):
+            raise ValueError(f"Ingestion config field '{field_prefix}' must be a mapping")
+
+        raw_mode = str(raw_timeframe.get("mode", IngestionTimeframeMode.RELATIVE.value))
+        try:
+            mode = IngestionTimeframeMode.from_value(raw_mode)
+        except ValueError as exc:
+            raise ValueError(f"Ingestion config field '{field_prefix}.mode': {exc}") from exc
+
+        if mode == IngestionTimeframeMode.RELATIVE:
+            fallback_relative = (
+                default_relative.value
+                if default_relative is not None
+                else IngestionTimeframeRelative.PAST_DAY.value
+            )
+            raw_relative = str(raw_timeframe.get("relative", fallback_relative))
+            try:
+                relative = IngestionTimeframeRelative.from_value(raw_relative)
+            except ValueError as exc:
+                raise ValueError(f"Ingestion config field '{field_prefix}.relative': {exc}") from exc
+            return cls._build_relative_timeframe(relative)
+
+        raw_from_date = raw_timeframe.get("from_date")
+        raw_to_date = raw_timeframe.get("to_date")
+        if raw_from_date is None or raw_to_date is None:
+            raise ValueError(
+                f"Ingestion config field '{field_prefix}' explicit mode requires "
+                "'from_date' and 'to_date'"
+            )
+        from_date = coerce_day(raw_from_date)
+        to_date = coerce_day(raw_to_date)
+        if from_date > to_date:
+            raise ValueError(
+                f"Ingestion config field '{field_prefix}.from_date' must be <= "
+                f"'{field_prefix}.to_date'"
+            )
+        return IngestionTimeframe(from_date=from_date, to_date=to_date)
+
+    @staticmethod
+    def _build_relative_timeframe(relative: IngestionTimeframeRelative) -> "IngestionTimeframe":
+        today = utc_today_date()
+        if relative == IngestionTimeframeRelative.PAST_DAY:
+            return IngestionTimeframe(from_date=today, to_date=today)
+        if relative == IngestionTimeframeRelative.PAST_WEEK:
+            return IngestionTimeframe(from_date=today - timedelta(days=6), to_date=today)
+        return IngestionTimeframe(from_date=today - timedelta(days=29), to_date=today)
 
     @staticmethod
     def _coerce_profile_run_date(raw_run_date: Any) -> date:
@@ -543,10 +668,20 @@ class GuardianProfileConfig:  # pylint: disable=too-many-instance-attributes
     """Resolved query settings for a named Guardian search profile."""
 
     topic: str
-    run_date: Optional[date]
     page_size: int
+    run_date: Optional[date] = None
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
     query: Optional[str] = None
     section: Optional[str] = None
     order_by: GuardianOrderBy = GuardianOrderBy.NEWEST
     use_next_fallback: bool = True
     content_show_fields: str = "all"
+
+
+@dataclass(frozen=True)
+class IngestionTimeframe:
+    """Resolved ingestion timeframe date window."""
+
+    from_date: date
+    to_date: date

@@ -349,6 +349,11 @@ class TestArticleIngestorRunIntegration(IngestionPipelineIntegrationTestCase):
         self.assertEqual(len(result["checkpoint_files"]), 2)
         for checkpoint_file in result["checkpoint_files"]:
             self.assertTrue(Path(checkpoint_file).is_file())
+        self.assertEqual(
+            Path(str(result["id_manifest_file"])),
+            self.checkpoint_dir.parent / "ingested_ids" / "ingested_ids.json",
+        )
+        self.assertTrue(Path(str(result["id_manifest_file"])).is_file())
 
         technology_checkpoint = self.checkpoint_dir / "technology_daily_20260428T120000Z.json"
         with technology_checkpoint.open("r", encoding="utf-8") as checkpoint_file:
@@ -377,6 +382,82 @@ class TestArticleIngestorRunIntegration(IngestionPipelineIntegrationTestCase):
                 for call in detail_calls
             )
         )
+
+    def test_run_skips_already_ingested_ids_on_second_run(self) -> None:
+        """run: second execution skips detail fetches for already ingested ids."""
+        self._set_transport(
+            search_payloads={
+                ("chips", 1): _build_search_response([{"id": "technology/article-1"}]),
+                ("science", 1): _build_search_response([]),
+            },
+            detail_payloads={
+                "technology/article-1": _build_article(
+                    "technology/article-1",
+                    "Technology Article 1",
+                    "technology_daily",
+                ),
+            },
+        )
+        first_ingestor = self._create_ingestor(run_timestamp="20260428T120000Z")
+        first_result = first_ingestor.run()
+        self.assertEqual(first_result["fetched_count"], 1)
+
+        second_transport = self._set_transport(
+            search_payloads={
+                ("chips", 1): _build_search_response([{"id": "technology/article-1"}]),
+                ("science", 1): _build_search_response([]),
+            },
+            detail_payloads={
+                "technology/article-1": _build_article(
+                    "technology/article-1",
+                    "Technology Article 1",
+                    "technology_daily",
+                ),
+            },
+        )
+        second_ingestor = self._create_ingestor(run_timestamp="20260428T130000Z")
+        second_result = second_ingestor.run()
+
+        self.assertEqual(second_result["fetched_count"], 0)
+        self.assertEqual(second_result["skipped_existing_count"], 1)
+        self.assertEqual(
+            Path(str(second_result["id_manifest_file"])),
+            self.checkpoint_dir.parent / "ingested_ids" / "ingested_ids.json",
+        )
+        second_detail_calls = [
+            call for call in second_transport.calls if not call["url"].endswith("/search")
+        ]
+        self.assertEqual(second_detail_calls, [])
+
+    def test_run_skips_shared_ids_across_profiles_in_same_run(self) -> None:
+        """run: shared ids from one profile are skipped when another profile returns them."""
+        transport = self._set_transport(
+            search_payloads={
+                ("chips", 1): _build_search_response([{"id": "shared/article-1"}]),
+                ("science", 1): _build_search_response([{"id": "shared/article-1"}]),
+            },
+            detail_payloads={
+                "shared/article-1": _build_article(
+                    "shared/article-1",
+                    "Shared Article",
+                    "technology_daily",
+                ),
+            },
+        )
+        article_ingestor = self._create_ingestor(run_timestamp="20260428T140000Z")
+        result = article_ingestor.run()
+
+        self.assertEqual(result["fetched_count"], 1)
+        self.assertEqual(result["skipped_existing_count"], 1)
+
+        profile_results = {item["profile"]: item for item in result["results"]}
+        self.assertEqual(profile_results["technology_daily"]["fetched_count"], 1)
+        self.assertEqual(profile_results["technology_daily"]["skipped_existing_count"], 0)
+        self.assertEqual(profile_results["science_daily"]["fetched_count"], 0)
+        self.assertEqual(profile_results["science_daily"]["skipped_existing_count"], 1)
+
+        detail_calls = [call for call in transport.calls if not call["url"].endswith("/search")]
+        self.assertEqual(len(detail_calls), 1)
 
 
 class TestArticleNormalizerIntegration(IngestionPipelineIntegrationTestCase):

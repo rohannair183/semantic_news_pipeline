@@ -155,9 +155,13 @@ class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
             limit=5,
         )
 
-        client.iter_topic_articles.assert_called_once_with(profile="technology_daily", limit=5)
+        client.iter_topic_articles.assert_called_once_with(
+            profile="technology_daily",
+            limit=None,
+        )
         self.assertEqual(result["searched_count"], 3)
         self.assertEqual(result["fetched_count"], 1)
+        self.assertEqual(result["skipped_existing_count"], 0)
         self.assertEqual(result["failed_count"], 2)
         self.assertEqual(result["items"][0]["id"], "article-1")
         client.get_article_by_id.assert_any_call(
@@ -170,6 +174,75 @@ class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
         )
         self.assertEqual(result["failures"][0]["id"], "article-2")
         self.assertEqual(result["failures"][1]["error"], "Missing id in topic search result")
+
+    def test_collect_profile_articles_skips_existing_ids(self):
+        """collect_profile_articles: skips detail fetches for previously ingested ids."""
+        article_ingestor = _build_article_ingestor()
+        article_ingestor._seen_ids = {"article-1"}
+        client = Mock()
+        client.iter_topic_articles.return_value = [{"id": "article-1"}, {"id": "article-2"}]
+        client.get_article_by_id.return_value = {"id": "article-2"}
+        article_ingestor.client = client
+
+        result = article_ingestor.collect_profile_articles("technology_daily", limit=None)
+
+        self.assertEqual(result["searched_count"], 2)
+        self.assertEqual(result["skipped_existing_count"], 1)
+        self.assertEqual(result["fetched_count"], 1)
+        client.get_article_by_id.assert_called_once_with(
+            profile="technology_daily",
+            content_id="article-2",
+        )
+
+    def test_collect_profile_articles_limit_counts_only_newly_fetched_items(self):
+        """collect_profile_articles: applies limit to newly fetched items, not skipped ids."""
+        article_ingestor = _build_article_ingestor()
+        article_ingestor._seen_ids = {"article-1", "article-2"}
+        client = Mock()
+        client.iter_topic_articles.return_value = [
+            {"id": "article-1"},
+            {"id": "article-2"},
+            {"id": "article-3"},
+            {"id": "article-4"},
+        ]
+        client.get_article_by_id.side_effect = [
+            {"id": "article-3"},
+            {"id": "article-4"},
+        ]
+        article_ingestor.client = client
+
+        result = article_ingestor.collect_profile_articles("technology_daily", limit=1)
+
+        client.iter_topic_articles.assert_called_once_with(
+            profile="technology_daily",
+            limit=None,
+        )
+        self.assertEqual(result["searched_count"], 3)
+        self.assertEqual(result["skipped_existing_count"], 2)
+        self.assertEqual(result["fetched_count"], 1)
+        client.get_article_by_id.assert_called_once_with(
+            profile="technology_daily",
+            content_id="article-3",
+        )
+
+    def test_collect_profile_articles_skips_ids_seen_in_other_profiles(self):
+        """collect_profile_articles: skips ids already ingested globally across profiles."""
+        article_ingestor = _build_article_ingestor()
+        article_ingestor._seen_ids = {"shared-article"}
+        client = Mock()
+        client.iter_topic_articles.return_value = [{"id": "shared-article"}, {"id": "new-article"}]
+        client.get_article_by_id.return_value = {"id": "new-article"}
+        article_ingestor.client = client
+
+        result = article_ingestor.collect_profile_articles("science_daily", limit=None)
+
+        self.assertEqual(result["searched_count"], 2)
+        self.assertEqual(result["skipped_existing_count"], 1)
+        self.assertEqual(result["fetched_count"], 1)
+        client.get_article_by_id.assert_called_once_with(
+            profile="science_daily",
+            content_id="new-article",
+        )
 
 
 class TestArticleIngestorResolvedLimit(unittest.TestCase):
@@ -231,6 +304,39 @@ class TestArticleIngestorCheckpointDirectory(unittest.TestCase):
         self.assertEqual(self.article_ingestor.checkpoint_directory, Path("checkpoints/custom"))
 
 
+class TestArticleIngestorIdManifestPath(unittest.TestCase):
+    """This class tests id_manifest_path."""
+
+    def setUp(self):
+        self.article_ingestor = _build_article_ingestor()
+
+    def test_id_manifest_path_returns_none_when_checkpointing_disabled(self):
+        """id_manifest_path: returns None when local checkpoints are disabled."""
+        self.article_ingestor.config = _build_article_ingestor_config(
+            {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"save_local_checkpoint": False},
+            }
+        )
+        self.assertIsNone(self.article_ingestor.id_manifest_path)
+
+    def test_id_manifest_path_uses_dedicated_ingested_ids_directory(self):
+        """id_manifest_path: resolves to sibling checkpoints/ingested_ids path."""
+        self.article_ingestor.config = _build_article_ingestor_config(
+            {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {
+                    "save_local_checkpoint": True,
+                    "checkpoint_dir": "checkpoints/article_ingestor",
+                },
+            }
+        )
+        self.assertEqual(
+            self.article_ingestor.id_manifest_path,
+            Path("checkpoints/ingested_ids/ingested_ids.json"),
+        )
+
+
 class TestArticleIngestorWriteProfileCheckpoint(unittest.TestCase):
     """This class tests write_profile_checkpoint."""
 
@@ -277,6 +383,7 @@ class TestArticleIngestorRun(unittest.TestCase):
                     "profile": "technology_daily",
                     "searched_count": 2,
                     "fetched_count": 2,
+                    "skipped_existing_count": 0,
                     "failed_count": 0,
                     "items": [{"id": "a"}, {"id": "b"}],
                     "failures": [],
@@ -285,6 +392,7 @@ class TestArticleIngestorRun(unittest.TestCase):
                     "profile": "science_daily",
                     "searched_count": 2,
                     "fetched_count": 1,
+                    "skipped_existing_count": 1,
                     "failed_count": 1,
                     "items": [{"id": "c"}],
                     "failures": [{"id": "d", "error": "x"}],
@@ -302,6 +410,7 @@ class TestArticleIngestorRun(unittest.TestCase):
         self.assertEqual(result["limit_per_profile"], 2)
         self.assertEqual(result["searched_count"], 4)
         self.assertEqual(result["fetched_count"], 3)
+        self.assertEqual(result["skipped_existing_count"], 1)
         self.assertEqual(result["failed_count"], 1)
         self.assertEqual(result["checkpoint_files"], ["checkpoint_1.json", "checkpoint_2.json"])
         self.assertEqual(len(result["results"]), 2)
@@ -327,6 +436,7 @@ class TestArticleIngestorRun(unittest.TestCase):
                 "profile": "technology_daily",
                 "searched_count": 1,
                 "fetched_count": 1,
+                "skipped_existing_count": 0,
                 "failed_count": 0,
                 "items": [{"id": "x"}],
                 "failures": [],

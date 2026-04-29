@@ -6,15 +6,15 @@ responses.
 
 import time
 from dataclasses import dataclass
-from datetime import date, datetime
-from typing import Any, Dict, Iterator, List, Optional, Union
+from datetime import date
+from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import quote
 
 import requests
 
 from src.config.settings import GuardianProfileConfig, Settings
 from src.enums.guardian_use_date import GuardianUseDate
-from src.utils.dates import coerce_day, format_day_iso, utc_today_date
+from src.utils.dates import format_day_iso
 
 
 @dataclass
@@ -119,29 +119,24 @@ class GuardianClient:
             raise ValueError(f"Profile '{profile}' is not configured")
         return request
 
-    def _default_date(self) -> str:
-        """Return today's date in UTC, formatted as YYYY-MM-DD.
-
-        Returns:
-            str: ISO formatted date string (YYYY-MM-DD) in UTC.
-        """
-        return format_day_iso(utc_today_date())
-
-    def _normalize_date(
-        self,
-        run_date: Optional[Union[date, datetime, str]],
-    ) -> str:
-        """Normalize supported date inputs to YYYY-MM-DD.
-
-        Parameters:
-            run_date: A `datetime`, `date`, ISO date `str`, or `None`.
-
-        Returns:
-            str: ISO formatted date string (YYYY-MM-DD).
-        """
-        if run_date is None:
-            return self._default_date()
-        return format_day_iso(coerce_day(run_date))
+    @staticmethod
+    def _resolve_windowed_request(
+        request: GuardianProfileConfig,
+        from_date: date,
+        to_date: date,
+    ) -> GuardianProfileConfig:
+        return GuardianProfileConfig(
+            topic=request.topic,
+            run_date=request.run_date,
+            from_date=request.from_date or from_date,
+            to_date=request.to_date or to_date,
+            page_size=request.page_size,
+            query=request.query,
+            section=request.section,
+            order_by=request.order_by,
+            use_next_fallback=request.use_next_fallback,
+            content_show_fields=request.content_show_fields,
+        )
 
     def _validate_page_size(self, page_size: int) -> int:
         """Validate and return a supported Guardian API page size.
@@ -226,17 +221,21 @@ class GuardianClient:
         Returns:
             Dict[str, Any]: Query parameters suitable for the `/search` endpoint.
         """
-        if not request.topic:
-            raise ValueError("topic must not be empty")
-
-        normalized_date = self._normalize_date(request.run_date)
-        query = request.query or request.topic
+        if request.from_date is not None and request.to_date is not None:
+            from_date = request.from_date
+            to_date = request.to_date
+        elif request.run_date is not None:
+            from_date = request.run_date
+            to_date = request.run_date
+        else:
+            raise ValueError("profile date window is not fully configured")
+        query = request.query if request.query is not None else request.topic
         params: Dict[str, Any] = {
             "api-key": self.api_key,
             "format": "json",
             "q": query,
-            "from-date": normalized_date,
-            "to-date": normalized_date,
+            "from-date": format_day_iso(from_date),
+            "to-date": format_day_iso(to_date),
             "use-date": GuardianUseDate.PUBLISHED.value,
             "page": page,
             "page-size": self._validate_page_size(request.page_size),
@@ -374,6 +373,8 @@ class GuardianClient:
         self,
         profile: str,
         limit: Optional[int] = None,
+        from_date: Optional[date] = None,
+        to_date: Optional[date] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Yield article list items using a named YAML profile.
 
@@ -390,8 +391,12 @@ class GuardianClient:
         """
         if limit is not None and limit < 1:
             raise ValueError("limit must be greater than 0")
+        if (from_date is None) != (to_date is None):
+            raise ValueError("from_date and to_date must be provided together")
 
         request = self._get_profile_request(profile)
+        if from_date is not None and to_date is not None:
+            request = self._resolve_windowed_request(request, from_date, to_date)
         state = IterationState(remaining=limit)
         last_batch_size = 0
 
@@ -440,7 +445,8 @@ class GuardianClient:
         return {
             "topic": request.topic,
             "profile": profile,
-            "date": self._normalize_date(request.run_date),
+            "from_date": format_day_iso(request.from_date) if request.from_date else None,
+            "to_date": format_day_iso(request.to_date) if request.to_date else None,
             "total_available": None,
             "fetched_count": len(items),
             "items": items,

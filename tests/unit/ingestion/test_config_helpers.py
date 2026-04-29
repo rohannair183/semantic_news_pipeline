@@ -63,6 +63,7 @@ def build_ingestion_config(
     limit_per_profile: Optional[int] = None,
     save_local_checkpoint: bool = False,
     checkpoint_dir: Optional[str] = None,
+    timeframe: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Build a canonical ingestion config for unit tests."""
     config: Dict[str, Any] = {
@@ -78,6 +79,8 @@ def build_ingestion_config(
         config["article_ingestor"]["limit_per_profile"] = limit_per_profile
     if checkpoint_dir is not None:
         config["article_ingestor"]["checkpoint_dir"] = checkpoint_dir
+    if timeframe is not None:
+        config["article_ingestor"]["timeframe"] = timeframe
     return config
 
 

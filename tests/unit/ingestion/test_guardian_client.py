@@ -2,7 +2,7 @@
 """Unit tests for the GuardianClient class in the src.ingestion module."""
 
 import unittest
-from datetime import date, datetime, timezone
+from datetime import date
 from unittest.mock import Mock
 from unittest.mock import patch
 
@@ -132,31 +132,6 @@ class TestGuardianClientInit(GuardianClientTestCase):
             GuardianClient()
 
 
-class TestGuardianClientNormalizeDate(GuardianClientTestCase):
-    """This class tests _normalize_date."""
-
-    def test_default_date_uses_utc_today(self):
-        """_normalize_date: uses the UTC helper when no run date is configured."""
-        client = GuardianClient()
-        with patch("src.ingestion.guardian_client.utc_today_date", return_value=date(2026, 4, 26)):
-            self.assertEqual(getattr(client, "_default_date")(), "2026-04-26")
-
-    def test_normalize_date_variants_and_errors(self):
-        """_normalize_date: supports None/date/datetime/iso string and rejects bad values."""
-        client = GuardianClient()
-        normalize_date = getattr(client, "_normalize_date")
-        with patch.object(client, "_default_date", return_value="2026-04-26"):
-            self.assertEqual(normalize_date(None), "2026-04-26")
-        self.assertEqual(normalize_date(date(2026, 4, 1)), "2026-04-01")
-        date_time = datetime(2026, 4, 1, 5, 0, tzinfo=timezone.utc)
-        self.assertEqual(normalize_date(date_time), "2026-04-01")
-        self.assertEqual(normalize_date("2026-04-02"), "2026-04-02")
-        with self.assertRaises(ValueError):
-            normalize_date("not-a-date")
-        with self.assertRaises(ValueError):
-            normalize_date(123)
-
-
 class TestGuardianClientValidatePageSize(GuardianClientTestCase):
     """This class tests _validate_page_size."""
 
@@ -267,15 +242,17 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
         build_search_params = getattr(client, "_build_search_params")
         request = GuardianProfileConfig(
             topic="",
-            run_date=date(2026, 4, 1),
+            from_date=date(2026, 4, 1),
+            to_date=date(2026, 4, 1),
             page_size=10,
         )
-        with self.assertRaises(ValueError):
-            build_search_params(request, page=1)
+        params = build_search_params(request, page=1)
+        self.assertEqual(params["q"], "")
 
         request = GuardianProfileConfig(
             topic="technology",
-            run_date=date(2026, 4, 1),
+            from_date=date(2026, 4, 1),
+            to_date=date(2026, 4, 1),
             page_size=10,
             query="chips",
             section="technology",
@@ -290,7 +267,8 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
 
         request = GuardianProfileConfig(
             topic="science",
-            run_date=date(2026, 4, 1),
+            from_date=date(2026, 4, 1),
+            to_date=date(2026, 4, 1),
             page_size=10,
         )
         params = build_search_params(request, page=1)
