@@ -72,6 +72,34 @@ class TestSettingsProfileStringHelpers(unittest.TestCase):
         self.assertEqual(resolved, "all")
 
 
+class TestSettingsGenericStringHelpers(unittest.TestCase):
+    """This class tests generic string helper methods."""
+
+    def test_load_non_empty_string_rejects_blank_values(self):
+        """_load_non_empty_string: raises for blank string values."""
+        with self.assertRaises(ValueError):
+            Settings._load_non_empty_string(  # pylint: disable=protected-access
+                "   ",
+                field_name="example",
+            )
+
+    def test_load_non_empty_string_mapping_returns_valid_mapping(self):
+        """_load_non_empty_string_mapping: returns parsed string mapping values."""
+        resolved = Settings._load_non_empty_string_mapping(  # pylint: disable=protected-access
+            {"old_name": "new_name"},
+            field_name="example",
+        )
+        self.assertEqual(resolved, {"old_name": "new_name"})
+
+    def test_load_non_empty_string_mapping_rejects_empty_mapping(self):
+        """_load_non_empty_string_mapping: raises for empty mapping values."""
+        with self.assertRaises(ValueError):
+            Settings._load_non_empty_string_mapping(  # pylint: disable=protected-access
+                {},
+                field_name="example",
+            )
+
+
 class TestSettingsTimeframeHelpers(unittest.TestCase):
     """This class tests timeframe helper methods."""
 
