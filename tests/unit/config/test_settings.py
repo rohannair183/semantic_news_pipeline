@@ -12,6 +12,7 @@ from src.config.settings import Settings
 from src.enums.article_row_source_kind import ArticleRowSourceKind
 from src.enums.article_row_transform import ArticleRowTransform
 from src.enums.guardian_order_by import GuardianOrderBy
+from src.enums.pre_chunk_operation import PreChunkOperation
 from src.enums.yaml_config_type import YAMLConfigType
 
 
@@ -127,35 +128,64 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         self.assertIn("profiles", values)
 
     def test_load_ingestion_config_calls_parser_with_defaults(self):
-        """load_ingestion_config: calls parser with ingestion defaults."""
+        """load_ingestion_config: loads split ingestion files and optional legacy overrides."""
         with patch("src.config.settings.YAMLConfigParser") as parser_cls:
             parser_instance = parser_cls.return_value
-            parser_instance.parse.return_value = {"base_url": "https://mock"}
+            parser_instance.parse.side_effect = [
+                {"base_url": "https://mock"},
+                {"profiles": {"daily": {"topic": "x"}}},
+                {"article_ingestor": {"limit_per_profile": 5}},
+                {
+                    "article_normalizer": {
+                        "row_mappings": {
+                            "headline": {"sources": ["fields.headline"]}
+                        }
+                    }
+                },
+                {
+                    "pre_chunk_preprocessor": {
+                        "operations": [
+                            {"name": "drop_columns", "args": {"columns": ["thumbnail"]}}
+                        ]
+                    }
+                },
+                {"article_ingestor": {"limit_per_profile": 7}},
+            ]
 
             values = Settings.load_ingestion_config()
 
         parser_cls.assert_called_once_with()
-        parser_instance.parse.assert_called_once_with(
-            config_type=YAMLConfigType.INGESTION,
-            filename="ingestion_config.yaml",
+        self.assertEqual(parser_instance.parse.call_count, 6)
+        self.assertEqual(
+            parser_instance.parse.call_args_list[0].kwargs,
+            {"config_type": YAMLConfigType.INGESTION, "filename": "base.yaml"},
         )
-        self.assertEqual(values, {"base_url": "https://mock"})
+        self.assertEqual(
+            parser_instance.parse.call_args_list[-1].kwargs,
+            {"config_type": YAMLConfigType.INGESTION, "filename": "ingestion_config.yaml"},
+        )
+        self.assertEqual(values["base_url"], "https://mock")
+        self.assertEqual(values["article_ingestor"]["limit_per_profile"], 7)
 
     def test_load_ingestion_config_from_root_uses_custom_root(self):
-        """load_ingestion_config_from_root: passes a custom configuration root to the parser."""
+        """load_ingestion_config_from_root: passes custom root and merges split config files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             with patch("src.config.settings.YAMLConfigParser") as parser_cls:
                 parser_instance = parser_cls.return_value
-                parser_instance.parse.return_value = {"base_url": "https://root.test"}
+                parser_instance.parse.side_effect = [
+                    {"base_url": "https://root.test"},
+                    {},
+                    {},
+                    {},
+                    {},
+                    {},
+                ]
 
                 values = Settings.load_ingestion_config_from_root(configuration_root=root)
 
         parser_cls.assert_called_once_with(configuration_root=root)
-        parser_instance.parse.assert_called_once_with(
-            config_type=YAMLConfigType.INGESTION,
-            filename="ingestion_config.yaml",
-        )
+        self.assertEqual(parser_instance.parse.call_count, 6)
         self.assertEqual(values, {"base_url": "https://root.test"})
 
     def test_load_article_ingestor_config_returns_typed_config(self):
@@ -813,6 +843,101 @@ class TestSettingsLoadArticleNormalizerConfig(unittest.TestCase):
             ):
                 with self.assertRaises(ValueError):
                     Settings.load_article_normalizer_config(configuration_root=root)
+
+
+class TestSettingsLoadPreChunkPreprocessorConfig(unittest.TestCase):
+    """This class tests load_pre_chunk_preprocessor_config."""
+
+    def test_load_pre_chunk_preprocessor_config_returns_typed_config(self):
+        """load_pre_chunk_preprocessor_config: returns typed config with validated operations."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"parquet_dir": "checkpoints/parquet"},
+                "pre_chunk_preprocessor": {
+                    "output_dir": "checkpoints/pre_chunk",
+                    "operations": [
+                        {"name": "drop_columns", "args": {"columns": ["thumbnail"]}},
+                        {
+                            "name": "coalesce_columns",
+                            "args": {
+                                "target": "headline",
+                                "sources": ["headline", "web_title"],
+                            },
+                        },
+                    ],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_config = Settings.load_pre_chunk_preprocessor_config(
+                    configuration_root=root
+                )
+
+        self.assertEqual(typed_config.profile_names, ["technology_daily"])
+        self.assertEqual(typed_config.input_dir, Path("checkpoints/parquet"))
+        self.assertEqual(typed_config.output_dir, Path("checkpoints/pre_chunk"))
+        self.assertEqual(typed_config.operations[0].name, PreChunkOperation.DROP_COLUMNS)
+        self.assertEqual(typed_config.operations[1].name, PreChunkOperation.COALESCE_COLUMNS)
+
+    def test_load_pre_chunk_preprocessor_config_raises_for_missing_operations(self):
+        """load_pre_chunk_preprocessor_config: raises when operations are missing."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
+    def test_load_pre_chunk_preprocessor_config_raises_for_invalid_operation_name(self):
+        """load_pre_chunk_preprocessor_config: raises for unsupported operation names."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [
+                        {"name": "remove_fields", "args": {"columns": ["thumbnail"]}}
+                    ]
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
+    def test_load_pre_chunk_preprocessor_config_raises_for_malformed_args(self):
+        """load_pre_chunk_preprocessor_config: raises when operation args are malformed."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [
+                        {"name": "drop_columns", "args": {"columns": []}}
+                    ]
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
 
     def test_load_article_normalizer_config_raises_for_non_mapping_row_mapping(self):
         """load_article_normalizer_config: raises when one row mapping is not a mapping."""

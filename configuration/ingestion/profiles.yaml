@@ -1,0 +1,23 @@
+# Profiles: mapping of profile_name -> profile config
+# Each profile may include:
+#   topic, run_date, from_date/to_date, timeframe, page_size, query, section,
+#   order_by, use_next_fallback, content_show_fields
+profiles:
+  main_daily:
+    topic: ""
+    timeframe:
+      mode: "relative"
+      relative: "past_day"
+    order_by: "newest"
+    section: ""
+    use_next_fallback: true
+    content_show_fields: "all"
+  main_weekly:
+    topic: ""
+    timeframe:
+      mode: "relative"
+      relative: "past_week"
+    order_by: "newest"
+    section: ""
+    use_next_fallback: true
+    content_show_fields: "all"

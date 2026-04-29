@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional, cast
+from typing import Any, ClassVar, Dict, Optional, cast
 
 from src.config.yaml_config_parser import YAMLConfigParser
 from src.enums.article_row_source_kind import ArticleRowSourceKind
@@ -14,12 +14,22 @@ from src.enums.article_row_transform import ArticleRowTransform
 from src.enums.guardian_order_by import GuardianOrderBy
 from src.enums.ingestion_timeframe_mode import IngestionTimeframeMode
 from src.enums.ingestion_timeframe_relative import IngestionTimeframeRelative
+from src.enums.pre_chunk_operation import PreChunkOperation
 from src.enums.yaml_config_type import YAMLConfigType
 from src.utils.dates import coerce_day, utc_today_date
 
 
 @dataclass(frozen=True)
 class Settings:
+    _INGESTION_CONFIG_FILES: ClassVar[tuple[str, ...]] = (
+        "base.yaml",
+        "profiles.yaml",
+        "article_ingestor.yaml",
+        "article_normalizer.yaml",
+        "pre_chunk_preprocessor.yaml",
+    )
+    _INGESTION_LEGACY_CONFIG_FILE: ClassVar[str] = "ingestion_config.yaml"
+
     """Typed settings container for application secrets and config values."""
 
     api_key: str
@@ -87,10 +97,7 @@ class Settings:
     def load_ingestion_config(cls) -> Dict[str, Any]:
         """Load Guardian ingestion settings from YAML config."""
         parser = YAMLConfigParser()
-        return parser.parse(
-            config_type=YAMLConfigType.INGESTION,
-            filename="ingestion_config.yaml",
-        )
+        return cls._load_and_merge_ingestion_configs(parser)
 
     @classmethod
     def load_ingestion_config_from_root(
@@ -99,10 +106,35 @@ class Settings:
     ) -> Dict[str, Any]:
         """Load Guardian ingestion settings from a specific configuration root."""
         parser = YAMLConfigParser(configuration_root=configuration_root)
-        return parser.parse(
+        return cls._load_and_merge_ingestion_configs(parser)
+
+    @classmethod
+    def _load_and_merge_ingestion_configs(cls, parser: YAMLConfigParser) -> Dict[str, Any]:
+        """Load ingestion settings from split files plus optional legacy overrides."""
+        merged_config: Dict[str, Any] = {}
+        for filename in cls._INGESTION_CONFIG_FILES:
+            section_values = parser.parse(
+                config_type=YAMLConfigType.INGESTION,
+                filename=filename,
+            )
+            merged_config = cls._deep_merge_dicts(merged_config, section_values)
+        legacy_values = parser.parse(
             config_type=YAMLConfigType.INGESTION,
-            filename="ingestion_config.yaml",
+            filename=cls._INGESTION_LEGACY_CONFIG_FILE,
         )
+        return cls._deep_merge_dicts(merged_config, legacy_values)
+
+    @classmethod
+    def _deep_merge_dicts(cls, base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Deep merge two mapping values with updates taking precedence."""
+        merged: Dict[str, Any] = dict(base)
+        for key, value in updates.items():
+            existing_value = merged.get(key)
+            if isinstance(existing_value, dict) and isinstance(value, dict):
+                merged[key] = cls._deep_merge_dicts(existing_value, value)
+                continue
+            merged[key] = value
+        return merged
 
     @classmethod
     def load_article_ingestor_config(
@@ -230,6 +262,37 @@ class Settings:
             checkpoint_dir=checkpoint_dir,
             parquet_dir=parquet_dir,
             row_mappings=row_mappings,
+        )
+
+    @classmethod
+    def load_pre_chunk_preprocessor_config(
+        cls,
+        configuration_root: Optional[Path] = None,
+    ) -> "PreChunkPreprocessorConfig":
+        """Load and validate typed pre-chunk preprocessor configuration."""
+        config_values = (
+            cls.load_ingestion_config()
+            if configuration_root is None
+            else cls.load_ingestion_config_from_root(configuration_root)
+        )
+        profile_names = cls._load_profile_names(config_values)
+        article_ingestor_config = cls._load_optional_section(
+            config_values,
+            section_name="article_ingestor",
+        )
+        preprocessor_config = cls._load_required_section(
+            config_values,
+            section_name="pre_chunk_preprocessor",
+        )
+        raw_operations = preprocessor_config.get("operations")
+        operations = cls._load_pre_chunk_operations(raw_operations)
+        input_dir = Path(str(article_ingestor_config.get("parquet_dir", "checkpoints/parquet")))
+        output_dir = Path(str(preprocessor_config.get("output_dir", "checkpoints/pre_chunk")))
+        return PreChunkPreprocessorConfig(
+            profile_names=profile_names,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            operations=operations,
         )
 
     @staticmethod
@@ -688,6 +751,116 @@ class Settings:
         except ValueError as exc:
             raise ValueError(f"Row mapping '{output_field}' field 'transform': {exc}") from exc
 
+    @classmethod
+    def _load_pre_chunk_operations(
+        cls,
+        raw_operations: Any,
+    ) -> list["PreChunkOperationConfig"]:
+        if not isinstance(raw_operations, list) or not raw_operations:
+            raise ValueError(
+                "Ingestion config must contain a non-empty "
+                "'pre_chunk_preprocessor.operations' list"
+            )
+        resolved_operations: list[PreChunkOperationConfig] = []
+        for index, raw_operation in enumerate(raw_operations):
+            field_prefix = f"pre_chunk_preprocessor.operations[{index}]"
+            if not isinstance(raw_operation, dict):
+                raise ValueError(f"Ingestion config field '{field_prefix}' must be a mapping")
+            raw_name = raw_operation.get("name")
+            if not isinstance(raw_name, str) or not raw_name:
+                raise ValueError(
+                    f"Ingestion config field '{field_prefix}.name' must be a non-empty string"
+                )
+            try:
+                operation_name = PreChunkOperation.from_value(raw_name)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Ingestion config field '{field_prefix}.name': {exc}"
+                ) from exc
+            args = cls._load_pre_chunk_operation_args(
+                field_prefix=field_prefix,
+                operation_name=operation_name,
+                raw_args=raw_operation.get("args"),
+            )
+            resolved_operations.append(
+                PreChunkOperationConfig(
+                    name=operation_name,
+                    args=args,
+                )
+            )
+        return resolved_operations
+
+    @classmethod
+    def _load_pre_chunk_operation_args(
+        cls,
+        field_prefix: str,
+        operation_name: PreChunkOperation,
+        raw_args: Any,
+    ) -> dict[str, Any]:
+        if raw_args is None:
+            raw_args = {}
+        if not isinstance(raw_args, dict):
+            raise ValueError(f"Ingestion config field '{field_prefix}.args' must be a mapping")
+        resolved_args = dict(raw_args)
+        if operation_name == PreChunkOperation.DROP_COLUMNS:
+            resolved_args["columns"] = cls._load_non_empty_string_list(
+                resolved_args.get("columns"),
+                field_name=f"{field_prefix}.args.columns",
+            )
+        elif operation_name == PreChunkOperation.RENAME_COLUMNS:
+            resolved_args["mapping"] = cls._load_non_empty_string_mapping(
+                resolved_args.get("mapping"),
+                field_name=f"{field_prefix}.args.mapping",
+            )
+        elif operation_name == PreChunkOperation.TRIM_WHITESPACE_COLUMNS:
+            resolved_args["columns"] = cls._load_non_empty_string_list(
+                resolved_args.get("columns"),
+                field_name=f"{field_prefix}.args.columns",
+            )
+        elif operation_name == PreChunkOperation.DROP_EMPTY_ROWS:
+            resolved_args["required_columns"] = cls._load_non_empty_string_list(
+                resolved_args.get("required_columns"),
+                field_name=f"{field_prefix}.args.required_columns",
+            )
+        elif operation_name == PreChunkOperation.COALESCE_COLUMNS:
+            resolved_args["target"] = cls._load_non_empty_string(
+                resolved_args.get("target"),
+                field_name=f"{field_prefix}.args.target",
+            )
+            resolved_args["sources"] = cls._load_non_empty_string_list(
+                resolved_args.get("sources"),
+                field_name=f"{field_prefix}.args.sources",
+            )
+        elif operation_name == PreChunkOperation.NORMALIZE_TEXT_COLUMNS:
+            resolved_args["columns"] = cls._load_non_empty_string_list(
+                resolved_args.get("columns"),
+                field_name=f"{field_prefix}.args.columns",
+            )
+        return resolved_args
+
+    @staticmethod
+    def _load_non_empty_string(value: Any, field_name: str) -> str:
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(f"Ingestion config field '{field_name}' must be a non-empty string")
+        return value
+
+    @classmethod
+    def _load_non_empty_string_list(cls, value: Any, field_name: str) -> list[str]:
+        if not isinstance(value, list) or not value:
+            raise ValueError(f"Ingestion config field '{field_name}' must be a non-empty list")
+        return [cls._load_non_empty_string(item, field_name=field_name) for item in value]
+
+    @classmethod
+    def _load_non_empty_string_mapping(cls, value: Any, field_name: str) -> dict[str, str]:
+        if not isinstance(value, dict) or not value:
+            raise ValueError(f"Ingestion config field '{field_name}' must be a non-empty mapping")
+        resolved_mapping: dict[str, str] = {}
+        for raw_key, raw_mapping_value in value.items():
+            key = cls._load_non_empty_string(raw_key, field_name=field_name)
+            mapped_value = cls._load_non_empty_string(raw_mapping_value, field_name=field_name)
+            resolved_mapping[key] = mapped_value
+        return resolved_mapping
+
 
 @dataclass(frozen=True)
 class ArticleIngestorConfig:
@@ -726,6 +899,24 @@ class ArticleRowMappingConfig:
 
     sources: list[ArticleRowSourceConfig]
     transform: Optional[ArticleRowTransform] = None
+
+
+@dataclass(frozen=True)
+class PreChunkOperationConfig:
+    """Typed operation config parsed for pre-chunk preprocessing."""
+
+    name: PreChunkOperation
+    args: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class PreChunkPreprocessorConfig:
+    """Typed configuration for the pre-chunk parquet preprocessor."""
+
+    profile_names: list[str]
+    input_dir: Path
+    output_dir: Path
+    operations: list[PreChunkOperationConfig]
 
 
 @dataclass(frozen=True)

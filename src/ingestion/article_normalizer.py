@@ -1,4 +1,4 @@
-"""Normalize per-profile article checkpoints and write Parquet files."""
+"""Normalize article checkpoints and write combined Parquet files."""
 
 from __future__ import annotations
 
@@ -16,23 +16,19 @@ from src.config.settings import (
 )
 from src.enums.article_row_source_kind import ArticleRowSourceKind
 from src.enums.article_row_transform import ArticleRowTransform
-from src.utils.dates import (
-    format_day_compact,
-    format_day_iso,
-    parse_checkpoint_timestamp,
-    parse_guardian_datetime,
-)
+from src.utils.dates import format_day_iso, parse_checkpoint_timestamp, parse_guardian_datetime
 
 
 class ArticleNormalizer:
-    """Normalize per-profile article checkpoints and write Parquet output.
+    """Normalize article checkpoints and write combined Parquet output.
 
     Configuration is read from ingestion YAML to determine checkpoint and parquet
     directories plus the row mapping rules used when converting checkpoint JSON
     into tabular output. Set `article_ingestor.checkpoint_dir` and optionally
     `article_ingestor.parquet_dir` (defaults to `checkpoints/parquet`) in
-    `configuration/ingestion/ingestion_config.yaml`. Row mappings are controlled
-    by `article_normalizer.row_mappings` in the same YAML file.
+    `configuration/ingestion/article_ingestor.yaml`. Row mappings are controlled
+    by `article_normalizer.row_mappings` in
+    `configuration/ingestion/article_normalizer.yaml`.
     """
 
     def __init__(self, configuration_root: Optional[Path] = None):
@@ -240,14 +236,7 @@ class ArticleNormalizer:
         return list(self.checkpoint_dir.glob(pattern))
 
     def find_latest_checkpoints_for_date(self, day: date) -> Dict[str, Path]:
-        """Find latest checkpoint per profile for the given day.
-
-        Parameters:
-            day: Date to search for.
-
-        Returns:
-            Dict mapping profile name to latest checkpoint Path on that day.
-        """
+        """Find latest checkpoint per profile for the given day."""
         self._ensure_day(day)
         found: Dict[str, Path] = {}
         for profile in self.profiles:
@@ -316,43 +305,47 @@ class ArticleNormalizer:
         ]
         return pd.DataFrame(rows)
 
-    def _write_parquet(self, df: pd.DataFrame, profile: str, day: date) -> Path:
-        """Write normalized DataFrame to Parquet file.
+    def _list_checkpoints_for_date(self, day: date) -> List[Path]:
+        """List all checkpoint files for configured profiles on a specific day."""
+        checkpoints_with_timestamps: List[tuple[datetime, Path]] = []
+        for profile in self.profiles:
+            for checkpoint_path in self._list_profile_files(profile):
+                checkpoint_timestamp = self._parse_ts_from_filename(checkpoint_path)
+                if checkpoint_timestamp is None or checkpoint_timestamp.date() != day:
+                    continue
+                checkpoints_with_timestamps.append((checkpoint_timestamp, checkpoint_path))
+        checkpoints_with_timestamps.sort(key=lambda item: item[0])
+        return [path for _, path in checkpoints_with_timestamps]
+
+    def _write_combined_parquet(self, df: pd.DataFrame, day: date) -> Path:
+        """Write combined normalized DataFrame to a single parquet file.
 
         Parameters:
             df: DataFrame to write.
-            profile: Profile name (used in output path).
             day: Date (used in output path).
 
         Returns:
             Path to written Parquet file.
         """
         self._ensure_day(day)
-        out_dir = self.parquet_dir / profile / format_day_iso(day)
+        out_dir = self.parquet_dir
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{profile}_{format_day_compact(day)}.parquet"
+        out_path = out_dir / f"{format_day_iso(day)}.parquet"
         df.to_parquet(out_path, index=False)
         return out_path
 
     def normalize_day_to_parquet(self, day: date) -> Dict[str, str]:
-        """Normalize checkpoints for a day and write Parquet files.
-
-        Finds the latest checkpoint for each profile on the given day, normalizes
-        it, and writes per-profile Parquet files.
-
-        Parameters:
-            day: Date to process.
-
-        Returns:
-            Dict mapping profile name to written Parquet file path.
-        """
+        """Normalize all same-day checkpoints and write a combined parquet file."""
         self._ensure_day(day)
-        checkpoints = self.find_latest_checkpoints_for_date(day)
-        written: Dict[str, str] = {}
-        for profile, path in checkpoints.items():
-            df = self.normalize_checkpoint(path, profile=profile)
+        checkpoints = self._list_checkpoints_for_date(day)
+        normalized_frames: List[pd.DataFrame] = []
+        for path in checkpoints:
+            df = self.normalize_checkpoint(path)
             if df.empty:
                 continue
-            out = self._write_parquet(df, profile=profile, day=day)
-            written[profile] = str(out)
-        return written
+            normalized_frames.append(df)
+        if not normalized_frames:
+            return {}
+        combined_df = pd.concat(normalized_frames, ignore_index=True)
+        out = self._write_combined_parquet(combined_df, day=day)
+        return {format_day_iso(day): str(out)}

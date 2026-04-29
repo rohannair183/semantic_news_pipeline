@@ -1,0 +1,23 @@
+# Declarative preprocessing rules for chunk-ready parquet output.
+pre_chunk_preprocessor:
+  output_dir: checkpoints/pre_chunk
+  operations:
+    - name: drop_columns
+      args:
+        columns:
+          - thumbnail
+          - trail_text
+    - name: trim_whitespace_columns
+      args:
+        columns:
+          - web_title
+          - headline
+          - body_text
+    - name: drop_empty_rows
+      args:
+        required_columns:
+          - body_text
+    - name: normalize_text_columns
+      args:
+        columns:
+          - body_text

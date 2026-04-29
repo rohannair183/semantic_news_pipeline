@@ -18,6 +18,7 @@ import yaml
 from src.config.settings import Settings
 from src.ingestion.article_ingestor import ArticleIngestor
 from src.ingestion.article_normalizer import ArticleNormalizer
+from src.ingestion.prechunk_processing import PreChunkPreprocessor
 from tests.unit.ingestion.test_config_helpers import NORMALIZER_ROW_MAPPINGS
 
 
@@ -243,6 +244,21 @@ class IngestionPipelineIntegrationTestCase(unittest.TestCase):
             "article_normalizer": {
                 "row_mappings": ROW_MAPPINGS,
             },
+            "pre_chunk_preprocessor": {
+                "output_dir": str(self.parquet_dir.parent / "pre_chunk"),
+                "operations": [
+                    {"name": "drop_columns", "args": {"columns": ["thumbnail", "trail_text"]}},
+                    {"name": "trim_whitespace_columns", "args": {"columns": ["web_title"]}},
+                    {
+                        "name": "drop_empty_rows",
+                        "args": {"required_columns": ["body_text"]},
+                    },
+                    {
+                        "name": "normalize_text_columns",
+                        "args": {"columns": ["body_text"]},
+                    },
+                ],
+            },
         }
         with ingestion_config_path.open("w", encoding="utf-8") as config_file:
             yaml.safe_dump(config, config_file, sort_keys=False)
@@ -285,6 +301,10 @@ class IngestionPipelineIntegrationTestCase(unittest.TestCase):
     def _create_normalizer(self) -> ArticleNormalizer:
         """Create a real ArticleNormalizer bound to the temp config."""
         return ArticleNormalizer(configuration_root=self.configuration_root)
+
+    def _create_preprocessor(self) -> PreChunkPreprocessor:
+        """Create a real PreChunkPreprocessor bound to the temp config."""
+        return PreChunkPreprocessor(configuration_root=self.configuration_root)
 
     def _set_transport(
         self,
@@ -464,7 +484,7 @@ class TestArticleNormalizerIntegration(IngestionPipelineIntegrationTestCase):
     """This class tests normalize_day_to_parquet."""
 
     def test_normalize_day_to_parquet_writes_expected_rows(self) -> None:
-        """normalize_day_to_parquet: converts ingested checkpoints into parquet output."""
+        """normalize_day_to_parquet: converts ingested checkpoints into combined parquet output."""
         self._set_transport(
             search_payloads={
                 ("chips", 1): _build_search_response(
@@ -498,31 +518,29 @@ class TestArticleNormalizerIntegration(IngestionPipelineIntegrationTestCase):
         normalizer = self._create_normalizer()
         written = normalizer.normalize_day_to_parquet(INGESTION_DAY)
 
-        self.assertEqual(set(written.keys()), {"technology_daily", "science_daily"})
-        technology_parquet = Path(written["technology_daily"])
-        science_parquet = Path(written["science_daily"])
-        self.assertTrue(technology_parquet.is_file())
-        self.assertTrue(science_parquet.is_file())
+        self.assertEqual(set(written.keys()), {INGESTION_DAY.isoformat()})
+        combined_df = pd.read_parquet(Path(written[INGESTION_DAY.isoformat()]))
 
-        technology_df = pd.read_parquet(technology_parquet)
-        science_df = pd.read_parquet(science_parquet)
-
-        self.assertEqual(list(technology_df["api_id"]), ["technology/article-1"])
-        self.assertEqual(technology_df.iloc[0]["profile"], "technology_daily")
-        self.assertEqual(technology_df.iloc[0]["web_title"], "Technology Article 1")
         self.assertEqual(
-            technology_df.iloc[0]["published_at"].isoformat(),
+            set(combined_df["api_id"]),
+            {"technology/article-1", "science/article-1"},
+        )
+        technology_row = combined_df[combined_df["api_id"] == "technology/article-1"].iloc[0]
+        self.assertEqual(technology_row["profile"], "technology_daily")
+        self.assertEqual(technology_row["web_title"], "Technology Article 1")
+        self.assertEqual(
+            technology_row["published_at"].isoformat(),
             "2026-04-28T10:00:00+00:00",
         )
         self.assertEqual(
-            technology_df.iloc[0]["last_modified"].isoformat(),
+            technology_row["last_modified"].isoformat(),
             "2026-04-28T10:30:00+00:00",
         )
-        self.assertEqual(list(science_df["api_id"]), ["science/article-1"])
-        self.assertEqual(science_df.iloc[0]["profile"], "science_daily")
+        science_row = combined_df[combined_df["api_id"] == "science/article-1"].iloc[0]
+        self.assertEqual(science_row["profile"], "science_daily")
 
-    def test_normalize_day_to_parquet_prefers_latest_checkpoint(self) -> None:
-        """normalize_day_to_parquet: prefers the latest same-day checkpoint per profile."""
+    def test_normalize_day_to_parquet_uses_all_same_day_checkpoints(self) -> None:
+        """normalize_day_to_parquet: includes rows from all same-day checkpoints."""
         self._set_transport(
             search_payloads={
                 ("chips", 1): _build_search_response(
@@ -566,11 +584,10 @@ class TestArticleNormalizerIntegration(IngestionPipelineIntegrationTestCase):
         normalizer = self._create_normalizer()
         written = normalizer.normalize_day_to_parquet(INGESTION_DAY)
 
-        technology_df = pd.read_parquet(Path(written["technology_daily"]))
-        self.assertEqual(list(technology_df["web_title"]), ["New Technology Title"])
+        combined_df = pd.read_parquet(Path(written[INGESTION_DAY.isoformat()]))
         self.assertEqual(
-            technology_df.iloc[0]["published_at"].isoformat(),
-            "2026-04-28T14:00:00+00:00",
+            set(combined_df["web_title"]),
+            {"Old Technology Title", "New Technology Title"},
         )
 
     def test_normalize_day_to_parquet_skips_empty_profiles_after_failures(self) -> None:
@@ -626,10 +643,46 @@ class TestArticleNormalizerIntegration(IngestionPipelineIntegrationTestCase):
         normalizer = self._create_normalizer()
         written = normalizer.normalize_day_to_parquet(INGESTION_DAY)
 
-        self.assertEqual(set(written.keys()), {"technology_daily"})
-        technology_df = pd.read_parquet(Path(written["technology_daily"]))
-        self.assertEqual(list(technology_df["api_id"]), ["technology/article-1"])
-        self.assertFalse((self.parquet_dir / "science_daily").exists())
+        self.assertEqual(set(written.keys()), {INGESTION_DAY.isoformat()})
+        combined_df = pd.read_parquet(Path(written[INGESTION_DAY.isoformat()]))
+        self.assertEqual(list(combined_df["api_id"]), ["technology/article-1"])
+        self.assertTrue((self.parquet_dir / f"{INGESTION_DAY.isoformat()}.parquet").is_file())
+
+
+class TestPreChunkPreprocessorIntegration(IngestionPipelineIntegrationTestCase):
+    """This class tests preprocess_all_to_parquet."""
+
+    def test_preprocess_all_to_parquet_creates_chunk_ready_outputs(self) -> None:
+        """preprocess_all_to_parquet: writes transformed parquet outputs for chunking."""
+        self._set_transport(
+            search_payloads={
+                ("chips", 1): _build_search_response([{"id": "technology/article-1"}]),
+                ("science", 1): _build_search_response([]),
+            },
+            detail_payloads={
+                "technology/article-1": _build_article(
+                    "technology/article-1",
+                    "  Technology Article 1  ",
+                    "technology_daily",
+                    metadata={"body_text": "Body\n text"},
+                ),
+            },
+        )
+        article_ingestor = self._create_ingestor(run_timestamp="20260428T170000Z")
+        article_ingestor.run()
+
+        normalizer = self._create_normalizer()
+        normalized = normalizer.normalize_day_to_parquet(INGESTION_DAY)
+        self.assertIn(INGESTION_DAY.isoformat(), normalized)
+
+        preprocessor = self._create_preprocessor()
+        written = preprocessor.preprocess_to_parquet()
+        self.assertEqual(set(written.keys()), {INGESTION_DAY.isoformat()})
+        output_df = pd.read_parquet(Path(written[INGESTION_DAY.isoformat()]))
+        self.assertEqual(output_df.iloc[0]["web_title"], "Technology Article 1")
+        self.assertEqual(output_df.iloc[0]["body_text"], "Body text")
+        self.assertNotIn("thumbnail", output_df.columns)
+        self.assertNotIn("trail_text", output_df.columns)
 
 
 if __name__ == "__main__":  # pragma: no cover

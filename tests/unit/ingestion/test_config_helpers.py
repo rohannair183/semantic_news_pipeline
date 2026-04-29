@@ -29,6 +29,11 @@ NORMALIZER_ROW_MAPPINGS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+PRE_CHUNK_OPERATIONS: list[dict[str, Any]] = [
+    {"name": "drop_columns", "args": {"columns": ["thumbnail"]}},
+    {"name": "normalize_text_columns", "args": {"columns": ["body_text"]}},
+]
+
 
 def build_row_source_config(source_name: str) -> ArticleRowSourceConfig:
     """Build a typed row source config from a canonical test source string."""
@@ -93,4 +98,19 @@ def build_normalizer_config(
     config = build_ingestion_config(save_local_checkpoint=False, checkpoint_dir=checkpoint_dir)
     config["article_ingestor"]["parquet_dir"] = parquet_dir
     config["article_normalizer"] = {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()}
+    return config
+
+
+def build_pre_chunk_preprocessor_config(
+    *,
+    checkpoint_dir: str,
+    parquet_dir: str,
+    output_dir: str,
+) -> Dict[str, Any]:
+    """Build a canonical ingestion config for PreChunkPreprocessor tests."""
+    config = build_normalizer_config(checkpoint_dir=checkpoint_dir, parquet_dir=parquet_dir)
+    config["pre_chunk_preprocessor"] = {
+        "output_dir": output_dir,
+        "operations": PRE_CHUNK_OPERATIONS.copy(),
+    }
     return config

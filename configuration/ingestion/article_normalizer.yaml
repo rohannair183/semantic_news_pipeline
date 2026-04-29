@@ -1,0 +1,55 @@
+# YAML-driven row mappings used by ArticleNormalizer.
+article_normalizer:
+  row_mappings:
+    profile:
+      sources:
+        - profile
+        - payload.profile
+    api_id:
+      sources:
+        - id
+    web_title:
+      sources:
+        - webTitle
+        - fields.headline
+    headline:
+      sources:
+        - fields.headline
+    byline:
+      sources:
+        - fields.byline
+    section:
+      sources:
+        - sectionName
+    published_at:
+      sources:
+        - webPublicationDate
+      transform: parse_iso
+    first_publication_date:
+      sources:
+        - fields.firstPublicationDate
+      transform: parse_iso
+    url:
+      sources:
+        - webUrl
+    body_text:
+      sources:
+        - fields.bodyText
+        - fields.body
+    trail_text:
+      sources:
+        - fields.trailText
+    thumbnail:
+      sources:
+        - fields.thumbnail
+    wordcount:
+      sources:
+        - fields.wordcount
+    pillar:
+      sources:
+        - pillarName
+    last_modified:
+      sources:
+        - fields.lastModified
+        - lastModified
+      transform: parse_iso
