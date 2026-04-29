@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.config.yaml_config_parser import YAMLConfigParser
-from src.enums.yaml_config_type import YAMLConfigType
+from src.config.settings import Settings
 from src.ingestion.guardian_client import GuardianClient
 
 
@@ -16,7 +15,6 @@ class ArticleIngestor:
     def __init__(self):
         """Initialize ingestion dependencies."""
         self.client = GuardianClient()
-        self.parser = YAMLConfigParser()
         self.config = self.load_config()
         self.profiles_to_run = self._resolve_profiles_to_run(self.config)
         self.resolved_limit = self._resolve_limit(config=self.config)
@@ -29,10 +27,7 @@ class ArticleIngestor:
         Returns:
             Dict[str, Any]: Parsed ingestion configuration mapping.
         """
-        return self.parser.parse(
-            config_type=YAMLConfigType.INGESTION,
-            filename="ingestion_config.yaml",
-        )
+        return Settings.load_ingestion_config()
 
     def _resolve_profiles_to_run(self, config: Dict[str, Any]) -> List[str]:
         """Resolve profile names to ingest.

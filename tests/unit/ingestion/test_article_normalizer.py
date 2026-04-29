@@ -17,13 +17,13 @@ from tests.unit.ingestion.test_config_helpers import (
 
 
 def _build_article_normalizer(config_root: Path) -> ArticleNormalizer:
-    with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-        mock_parser = Mock()
-        mock_parser.parse.return_value = build_normalizer_config(
+    with patch(
+        "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+    ) as mock_load_config:
+        mock_load_config.return_value = build_normalizer_config(
             checkpoint_dir=str(config_root / "checkpoints"),
             parquet_dir=str(config_root / "parquet"),
         )
-        mock_parser_class.return_value = mock_parser
         return ArticleNormalizer(configuration_root=config_root)
 
 
@@ -41,79 +41,79 @@ class TestArticleNormalizerInit(unittest.TestCase):
     def test_init_raises_for_invalid_profiles(self):
         """__init__: raises ValueError if profiles is not a dict."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": "not a dict",
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
     def test_init_defaults_parquet_dir(self):
         """__init__: uses default parquet_dir if not in config."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"test": {}},
                     "article_ingestor": {"checkpoint_dir": str(Path(tmpdir) / "check")},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=Path(tmpdir))
                 self.assertIn("parquet", str(normalizer.parquet_dir))
 
     def test_init_rejects_invalid_article_normalizer_config(self):
         """__init__: raises ValueError if article_normalizer is not a mapping."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"test": {}},
                     "article_normalizer": [],
                 }
-                mock_parser_class.return_value = mock_parser
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
     def test_init_rejects_null_article_normalizer_config(self):
         """__init__: raises ValueError if article_normalizer is null."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"test": {}},
                     "article_normalizer": None,
                 }
-                mock_parser_class.return_value = mock_parser
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
     def test_init_rejects_missing_row_mappings(self):
         """__init__: raises ValueError if row_mappings are missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"test": {}},
                     "article_normalizer": {},
                 }
-                mock_parser_class.return_value = mock_parser
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
     def test_init_rejects_empty_row_mappings(self):
         """__init__: raises ValueError if row_mappings is empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"test": {}},
                     "article_normalizer": {"row_mappings": {}},
                 }
-                mock_parser_class.return_value = mock_parser
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
@@ -161,14 +161,14 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
             (checkpoint_dir / "tech_daily_20260427T100000Z.json").touch()
             (checkpoint_dir / "science_daily_20260428T100000Z.json").touch()
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}, "science_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 # pylint: disable=protected-access
@@ -183,14 +183,14 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 # pylint: disable=protected-access
@@ -298,14 +298,14 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             (checkpoint_dir / "tech_daily_20260428T200000Z.json").touch()
             (checkpoint_dir / "science_daily_20260428T150000Z.json").touch()
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}, "science_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -324,14 +324,14 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
 
             (checkpoint_dir / "tech_daily_20260427T100000Z.json").touch()
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -348,14 +348,14 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             (checkpoint_dir / "tech_daily_invalid.json").touch()
             (checkpoint_dir / "tech_daily_20260428T100000Z.json").touch()
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -431,8 +431,9 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
             with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
                 config = build_normalizer_config(
                     checkpoint_dir=str(tmppath / "checkpoints"),
                     parquet_dir=str(tmppath / "parquet"),
@@ -440,8 +441,7 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
                 config["article_normalizer"]["row_mappings"]["web_title"]["sources"] = [
                     "fields.headline"
                 ]
-                mock_parser.parse.return_value = config
-                mock_parser_class.return_value = mock_parser
+                mock_load_config.return_value = config
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 df = normalizer.normalize_checkpoint(checkpoint_file)
@@ -514,14 +514,14 @@ class TestArticleNormalizerWriteParquet(unittest.TestCase):
             tmppath = Path(tmpdir)
             parquet_dir = tmppath / "parquet"
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech": {}},
                     "article_ingestor": {"parquet_dir": str(parquet_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 df = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
@@ -562,9 +562,10 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
             with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {
                         "checkpoint_dir": str(checkpoint_dir),
@@ -572,7 +573,6 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                     },
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -587,14 +587,14 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -618,9 +618,10 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
             with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
 
-            with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
-                mock_parser = Mock()
-                mock_parser.parse.return_value = {
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+            ) as mock_load_config:
+                mock_load_config.return_value = {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {
                         "checkpoint_dir": str(checkpoint_dir),
@@ -628,7 +629,6 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                     },
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                 }
-                mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)

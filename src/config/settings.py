@@ -3,7 +3,7 @@
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional, cast
 
 from src.config.yaml_config_parser import YAMLConfigParser
 from src.enums.yaml_config_type import YAMLConfigType
@@ -42,9 +42,9 @@ class Settings:
 
         config_values = cls.load_ingestion_config()
         base_url = str(config_values.get("base_url"))
-        default_page_size = int(config_values.get("default_page_size"))
-        max_page_size = int(config_values.get("max_page_size"))
-        timeout_seconds = int(config_values.get("timeout_seconds"))
+        default_page_size = int(cast(Any, config_values.get("default_page_size")))
+        max_page_size = int(cast(Any, config_values.get("max_page_size")))
+        timeout_seconds = int(cast(Any, config_values.get("timeout_seconds")))
 
         if default_page_size < 1:
             raise ValueError("default_page_size must be >= 1")
@@ -97,6 +97,25 @@ class Settings:
             A dictionary of ingestion configuration values.
         """
         parser = YAMLConfigParser()
+        return parser.parse(
+            config_type=YAMLConfigType.INGESTION,
+            filename="ingestion_config.yaml",
+        )
+
+    @classmethod
+    def load_ingestion_config_from_root(
+        cls,
+        configuration_root: Optional[Path],
+    ) -> Dict[str, Any]:
+        """Load Guardian ingestion settings from a specific configuration root.
+
+        Args:
+            configuration_root: Optional override for the configuration directory root.
+
+        Returns:
+            A dictionary of ingestion configuration values.
+        """
+        parser = YAMLConfigParser(configuration_root=configuration_root)
         return parser.parse(
             config_type=YAMLConfigType.INGESTION,
             filename="ingestion_config.yaml",

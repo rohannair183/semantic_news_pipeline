@@ -201,6 +201,23 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         )
         self.assertEqual(values, {"base_url": "https://mock"})
 
+    def test_load_ingestion_config_from_root_uses_custom_root(self):
+        """load_ingestion_config_from_root: passes a custom configuration root to the parser."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            with patch("src.config.settings.YAMLConfigParser") as parser_cls:
+                parser_instance = parser_cls.return_value
+                parser_instance.parse.return_value = {"base_url": "https://root.test"}
+
+                values = Settings.load_ingestion_config_from_root(configuration_root=root)
+
+        parser_cls.assert_called_once_with(configuration_root=root)
+        parser_instance.parse.assert_called_once_with(
+            config_type=YAMLConfigType.INGESTION,
+            filename="ingestion_config.yaml",
+        )
+        self.assertEqual(values, {"base_url": "https://root.test"})
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

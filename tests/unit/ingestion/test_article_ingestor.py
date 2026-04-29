@@ -17,11 +17,9 @@ def _build_article_ingestor(config: Optional[Dict[str, Any]] = None) -> ArticleI
     if config is None:
         config = build_ingestion_config(save_local_checkpoint=False)
     with patch("src.ingestion.article_ingestor.GuardianClient") as mock_client_class, patch(
-        "src.ingestion.article_ingestor.YAMLConfigParser"
-    ) as mock_parser_class:
-        mock_parser = Mock()
-        mock_parser.parse.return_value = config
-        mock_parser_class.return_value = mock_parser
+        "src.ingestion.article_ingestor.Settings.load_ingestion_config",
+        return_value=config,
+    ):
         mock_client_class.return_value = Mock()
         return ArticleIngestor()
 
@@ -30,17 +28,15 @@ class TestArticleIngestorInit(unittest.TestCase):
     """This class tests __init__."""
 
     @patch("src.ingestion.article_ingestor.GuardianClient")
-    @patch("src.ingestion.article_ingestor.YAMLConfigParser")
+    @patch("src.ingestion.article_ingestor.Settings.load_ingestion_config")
     @patch("src.ingestion.article_ingestor.datetime")
-    def test_init_with_defaults(self, mock_datetime, mock_parser_class, mock_client_class):
+    def test_init_with_defaults(self, mock_datetime, mock_load_config, mock_client_class):
         """__init__: constructor creates dependencies and caches resolved config state."""
         mock_client = Mock()
-        mock_parser = Mock()
         mock_now = Mock()
         mock_now.strftime.return_value = "20260428T010203Z"
         mock_client_class.return_value = mock_client
-        mock_parser_class.return_value = mock_parser
-        mock_parser.parse.return_value = {
+        mock_load_config.return_value = {
             "profiles": {
                 "technology_daily": {"topic": "technology"},
                 "science_daily": {"topic": "science"},
@@ -58,31 +54,31 @@ class TestArticleIngestorInit(unittest.TestCase):
 
         self.assertIsInstance(article_ingestor, ArticleIngestor)
         self.assertIs(article_ingestor.client, mock_client)
-        self.assertIs(article_ingestor.parser, mock_parser)
         self.assertEqual(
             article_ingestor.config["profiles"],
-            mock_parser.parse.return_value["profiles"],
+            mock_load_config.return_value["profiles"],
         )
         self.assertEqual(article_ingestor.profiles_to_run, ["science_daily"])
         self.assertEqual(article_ingestor.resolved_limit, 3)
         self.assertEqual(article_ingestor.checkpoint_directory, Path("checkpoints/custom"))
         self.assertEqual(article_ingestor.run_timestamp, "20260428T010203Z")
+        mock_load_config.assert_called_once_with()
 
 
 class TestArticleIngestorLoadConfig(unittest.TestCase):
     """This class tests load_config."""
 
-    def test_load_config_uses_yaml_parser(self):
-        """load_config: parser.parse is called with ingestion config target."""
+    def test_load_config_uses_settings_loader(self):
+        """load_config: Settings loader is called for ingestion config."""
         article_ingestor = _build_article_ingestor()
-        parser = Mock()
-        parser.parse.return_value = {"profiles": {"technology_daily": {"topic": "technology"}}}
-        article_ingestor.parser = parser
-
-        result = article_ingestor.load_config()
+        with patch(
+            "src.ingestion.article_ingestor.Settings.load_ingestion_config",
+            return_value={"profiles": {"technology_daily": {"topic": "technology"}}},
+        ) as mock_load_config:
+            result = article_ingestor.load_config()
 
         self.assertEqual(result, {"profiles": {"technology_daily": {"topic": "technology"}}})
-        parser.parse.assert_called_once()
+        mock_load_config.assert_called_once_with()
 
 
 class TestArticleIngestorResolveProfilesToRun(unittest.TestCase):

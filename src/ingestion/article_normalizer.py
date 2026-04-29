@@ -9,8 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from src.config.yaml_config_parser import YAMLConfigParser
-from src.enums.yaml_config_type import YAMLConfigType
+from src.config.settings import Settings
 
 
 class ArticleNormalizer:
@@ -30,11 +29,7 @@ class ArticleNormalizer:
         Parameters:
             configuration_root: Root directory for config files. If None, auto-resolved.
         """
-        parser = YAMLConfigParser(configuration_root=configuration_root)
-        cfg_type = YAMLConfigType.INGESTION
-        config = parser.parse(
-            config_type=cfg_type, filename="ingestion_config.yaml"
-        )
+        config = Settings.load_ingestion_config_from_root(configuration_root=configuration_root)
         self._config = config
         article_cfg = config.get("article_ingestor", {}) or {}
         self._row_mappings = self._resolve_row_mappings(config)
