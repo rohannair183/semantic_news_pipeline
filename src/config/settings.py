@@ -21,6 +21,8 @@ from src.utils.dates import coerce_day, utc_today_date
 
 @dataclass(frozen=True)
 class Settings:
+    """Typed settings container for application secrets and config values."""
+
     _INGESTION_CONFIG_FILES: ClassVar[tuple[str, ...]] = (
         "base.yaml",
         "profiles.yaml",
@@ -29,8 +31,6 @@ class Settings:
         "pre_chunk_preprocessor.yaml",
     )
     _INGESTION_LEGACY_CONFIG_FILE: ClassVar[str] = "ingestion_config.yaml"
-
-    """Typed settings container for application secrets and config values."""
 
     api_key: str
     base_url: str

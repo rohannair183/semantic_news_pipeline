@@ -28,7 +28,9 @@ class PreChunkPreprocessor:
         return list(self._config.profile_names)
 
     def _list_input_files(self) -> list[Path]:
-        parquet_files = [path for path in self._config.input_dir.glob("*.parquet") if path.is_file()]
+        parquet_files = [
+            path for path in self._config.input_dir.glob("*.parquet") if path.is_file()
+        ]
         return sorted(parquet_files)
 
     @staticmethod
@@ -60,66 +62,104 @@ class PreChunkPreprocessor:
             return bool(value.strip())
         return True
 
-    def _apply_operation(self, df: pd.DataFrame, operation: PreChunkOperationConfig) -> pd.DataFrame:
-        name = operation.name
-        args = operation.args
-        if name == PreChunkOperation.DROP_COLUMNS:
-            columns = list(args["columns"])
-            existing_columns = [column for column in columns if column in df.columns]
-            if not existing_columns:
-                return df
-            return df.drop(columns=existing_columns)
+    def _apply_operation(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        operation_handlers = {
+            PreChunkOperation.DROP_COLUMNS: self._drop_columns,
+            PreChunkOperation.RENAME_COLUMNS: self._rename_columns,
+            PreChunkOperation.TRIM_WHITESPACE_COLUMNS: self._trim_whitespace_columns,
+            PreChunkOperation.DROP_EMPTY_ROWS: self._drop_empty_rows,
+            PreChunkOperation.COALESCE_COLUMNS: self._coalesce_columns,
+            PreChunkOperation.NORMALIZE_TEXT_COLUMNS: self._normalize_text_columns,
+        }
+        handler = operation_handlers.get(operation.name)
+        if handler is None:
+            operation_name = getattr(operation.name, "value", str(operation.name))
+            raise ValueError(f"Unsupported pre-chunk operation: {operation_name}")
+        return handler(df, operation)
 
-        if name == PreChunkOperation.RENAME_COLUMNS:
-            mapping = dict(args["mapping"])
-            if not mapping:
-                return df
-            self._ensure_columns_exist(df, list(mapping.keys()), name.value)
-            return df.rename(columns=mapping)
-
-        if name == PreChunkOperation.TRIM_WHITESPACE_COLUMNS:
-            columns = list(args["columns"])
-            self._ensure_columns_exist(df, columns, name.value)
-            for column in columns:
-                df[column] = df[column].map(
-                    lambda value: value.strip() if isinstance(value, str) else value
-                )
+    def _drop_columns(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        columns = list(operation.args["columns"])
+        existing_columns = [column for column in columns if column in df.columns]
+        if not existing_columns:
             return df
+        return df.drop(columns=existing_columns)
 
-        if name == PreChunkOperation.DROP_EMPTY_ROWS:
-            required_columns = list(args["required_columns"])
-            self._ensure_columns_exist(df, required_columns, name.value)
-            filtered_df = df.copy()
-            for column in required_columns:
-                present_mask = filtered_df[column].apply(self._is_present)
-                filtered_df = filtered_df.loc[present_mask]
-            return filtered_df.reset_index(drop=True)
-
-        if name == PreChunkOperation.COALESCE_COLUMNS:
-            target = str(args["target"])
-            sources = list(args["sources"])
-            self._ensure_columns_exist(df, sources, name.value)
-            coalesced = df[sources].bfill(axis=1).iloc[:, 0]
-            if target in df.columns:
-                existing_target = df[target]
-                df[target] = existing_target.where(existing_target.notna(), coalesced)
-            else:
-                df[target] = coalesced
+    def _rename_columns(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        mapping = dict(operation.args["mapping"])
+        if not mapping:
             return df
+        self._ensure_columns_exist(df, list(mapping.keys()), operation.name.value)
+        return df.rename(columns=mapping)
 
-        if name == PreChunkOperation.NORMALIZE_TEXT_COLUMNS:
-            columns = list(args["columns"])
-            self._ensure_columns_exist(df, columns, name.value)
-            whitespace_pattern = re.compile(r"\s+")
-            for column in columns:
-                df[column] = df[column].map(
-                    lambda value: whitespace_pattern.sub(" ", value).strip()
-                    if isinstance(value, str)
-                    else value
-                )
+    def _trim_whitespace_columns(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        columns = list(operation.args["columns"])
+        self._ensure_columns_exist(df, columns, operation.name.value)
+        for column in columns:
+            df[column] = df[column].map(
+                lambda value: value.strip() if isinstance(value, str) else value
+            )
+        return df
+
+    def _drop_empty_rows(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        required_columns = list(operation.args["required_columns"])
+        self._ensure_columns_exist(df, required_columns, operation.name.value)
+        filtered_df = df.copy()
+        for column in required_columns:
+            present_mask = filtered_df[column].apply(self._is_present)
+            filtered_df = filtered_df.loc[present_mask]
+        return filtered_df.reset_index(drop=True)
+
+    def _coalesce_columns(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        target = str(operation.args["target"])
+        sources = list(operation.args["sources"])
+        self._ensure_columns_exist(df, sources, operation.name.value)
+        coalesced = df[sources].bfill(axis=1).iloc[:, 0]
+        if target not in df.columns:
+            df[target] = coalesced
             return df
+        existing_target = df[target]
+        df[target] = existing_target.where(existing_target.notna(), coalesced)
+        return df
 
-        raise ValueError(f"Unsupported pre-chunk operation: {name.value}")
+    def _normalize_text_columns(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        columns = list(operation.args["columns"])
+        self._ensure_columns_exist(df, columns, operation.name.value)
+        whitespace_pattern = re.compile(r"\s+")
+        for column in columns:
+            df[column] = df[column].map(
+                lambda value: whitespace_pattern.sub(" ", value).strip()
+                if isinstance(value, str)
+                else value
+            )
+        return df
 
     def _apply_operations(self, df: pd.DataFrame) -> pd.DataFrame:
         transformed_df = df.copy()

@@ -1,4 +1,5 @@
 # pyright: reportPrivateUsage=false
+# pylint: disable=too-many-lines
 """Unit tests for settings loading and validation."""
 
 import os
@@ -938,6 +939,130 @@ class TestSettingsLoadPreChunkPreprocessorConfig(unittest.TestCase):
             ):
                 with self.assertRaises(ValueError):
                     Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
+    def test_load_pre_chunk_preprocessor_config_raises_for_non_mapping_operation(self):
+        """load_pre_chunk_preprocessor_config: raises when an operation item is not a mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": ["drop_columns"],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
+    def test_load_pre_chunk_preprocessor_config_raises_for_empty_operation_name(self):
+        """load_pre_chunk_preprocessor_config: raises when an operation name is blank."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [{"name": "", "args": {}}],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
+    def test_load_pre_chunk_preprocessor_config_supports_rename_columns(self):
+        """load_pre_chunk_preprocessor_config: parses rename_columns operation arguments."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [
+                        {
+                            "name": "rename_columns",
+                            "args": {"mapping": {"old_name": "new_name"}},
+                        }
+                    ],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_config = Settings.load_pre_chunk_preprocessor_config(
+                    configuration_root=root
+                )
+
+        self.assertEqual(
+            typed_config.operations[0].args["mapping"],
+            {"old_name": "new_name"},
+        )
+
+    def test_load_pre_chunk_preprocessor_config_raises_for_non_mapping_args(self):
+        """load_pre_chunk_preprocessor_config: raises when operation args are not a mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [
+                        {"name": "drop_columns", "args": ["thumbnail"]},
+                    ],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
+    def test_load_pre_chunk_preprocessor_config_uses_empty_mapping_for_missing_args(self):
+        """load_pre_chunk_preprocessor_config: treats missing args as an empty mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [{"name": "drop_columns"}],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
+    def test_load_non_empty_string_rejects_blank_values(self):
+        """_load_non_empty_string: raises for blank string values."""
+        with self.assertRaises(ValueError):
+            Settings._load_non_empty_string("   ", field_name="example")  # pylint: disable=protected-access
+
+    def test_load_non_empty_string_mapping_returns_valid_mapping(self):
+        """_load_non_empty_string_mapping: returns parsed string mapping values."""
+        resolved = Settings._load_non_empty_string_mapping(  # pylint: disable=protected-access
+            {"old_name": "new_name"},
+            field_name="example",
+        )
+        self.assertEqual(resolved, {"old_name": "new_name"})
+
+    def test_load_non_empty_string_mapping_rejects_empty_mapping(self):
+        """_load_non_empty_string_mapping: raises for empty mapping values."""
+        with self.assertRaises(ValueError):
+            Settings._load_non_empty_string_mapping(  # pylint: disable=protected-access
+                {},
+                field_name="example",
+            )
 
     def test_load_article_normalizer_config_raises_for_non_mapping_row_mapping(self):
         """load_article_normalizer_config: raises when one row mapping is not a mapping."""

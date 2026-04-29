@@ -779,6 +779,40 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
 
                 self.assertEqual(len(written), 0)
 
+    def test_normalize_day_to_parquet_skips_invalid_timestamp_filenames(self):
+        """normalize_day_to_parquet: ignores checkpoint files with invalid timestamp tokens."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            checkpoint_dir = tmppath / "checkpoints"
+            checkpoint_dir.mkdir()
+
+            invalid_checkpoint = checkpoint_dir / "tech_daily_invalid.json"
+            with invalid_checkpoint.open("w", encoding="utf-8") as checkpoint_file:
+                json.dump(
+                    {"profile": "tech_daily", "items": [{"id": "article-1"}]},
+                    checkpoint_file,
+                )
+
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
+            ) as mock_load_config:
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
+                        "profiles": {"tech_daily": {}},
+                        "article_ingestor": {
+                            "checkpoint_dir": str(checkpoint_dir),
+                            "parquet_dir": str(tmppath / "parquet"),
+                        },
+                        "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
+                    },
+                )
+                normalizer = ArticleNormalizer(configuration_root=tmppath)
+
+                written = normalizer.normalize_day_to_parquet(date(2026, 4, 28))
+
+                self.assertEqual(written, {})
+
     def test_normalize_day_to_parquet_uses_all_same_day_checkpoints(self):
         """normalize_day_to_parquet: includes rows from all same-day checkpoint files."""
         with tempfile.TemporaryDirectory() as tmpdir:
