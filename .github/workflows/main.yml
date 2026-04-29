@@ -27,13 +27,9 @@ jobs:
       - name: Run pylint
         run: pylint src tests
 
-      - name: Run ruff when available
+      - name: Run ruff
         run: |
-          if command -v ruff >/dev/null 2>&1; then
             ruff check .
-          else
-            echo "ruff not installed; skipping"
-          fi
 
   unit-tests:
     runs-on: ubuntu-latest
