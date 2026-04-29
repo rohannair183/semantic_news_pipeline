@@ -47,4 +47,5 @@ ci = [
   "pytest-cov",
   "pylint>=3.3",
   "astroid>=3.3",
+  "ruff",
 ]
