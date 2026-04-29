@@ -10,10 +10,19 @@ from unittest.mock import patch
 from src.ingestion.article_ingestor import ArticleIngestor
 
 
-def _build_article_ingestor() -> ArticleIngestor:
-    with patch("src.ingestion.article_ingestor.GuardianClient"), patch(
+def _build_article_ingestor(config: dict | None = None) -> ArticleIngestor:
+    if config is None:
+        config = {
+            "profiles": {"technology_daily": {"topic": "technology"}},
+            "article_ingestor": {"save_local_checkpoint": False},
+        }
+    with patch("src.ingestion.article_ingestor.GuardianClient") as mock_client_class, patch(
         "src.ingestion.article_ingestor.YAMLConfigParser"
-    ):
+    ) as mock_parser_class:
+        mock_parser = Mock()
+        mock_parser.parse.return_value = config
+        mock_parser_class.return_value = mock_parser
+        mock_client_class.return_value = Mock()
         return ArticleIngestor()
 
 
@@ -22,18 +31,39 @@ class TestArticleIngestorInit(unittest.TestCase):
 
     @patch("src.ingestion.article_ingestor.GuardianClient")
     @patch("src.ingestion.article_ingestor.YAMLConfigParser")
-    def test_init_with_defaults(self, mock_parser_class, mock_client_class):
-        """__init__: constructor creates default dependencies."""
+    @patch("src.ingestion.article_ingestor.datetime")
+    def test_init_with_defaults(self, mock_datetime, mock_parser_class, mock_client_class):
+        """__init__: constructor creates dependencies and caches resolved config state."""
         mock_client = Mock()
         mock_parser = Mock()
+        mock_now = Mock()
+        mock_now.strftime.return_value = "20260428T010203Z"
         mock_client_class.return_value = mock_client
         mock_parser_class.return_value = mock_parser
+        mock_parser.parse.return_value = {
+            "profiles": {
+                "technology_daily": {"topic": "technology"},
+                "science_daily": {"topic": "science"},
+            },
+            "article_ingestor": {
+                "profiles_to_run": ["science_daily"],
+                "limit_per_profile": 3,
+                "save_local_checkpoint": True,
+                "checkpoint_dir": "checkpoints/custom",
+            },
+        }
+        mock_datetime.now.return_value = mock_now
 
         article_ingestor = ArticleIngestor()
 
         self.assertIsInstance(article_ingestor, ArticleIngestor)
         self.assertIs(article_ingestor.client, mock_client)
         self.assertIs(article_ingestor.parser, mock_parser)
+        self.assertEqual(article_ingestor.config["profiles"], mock_parser.parse.return_value["profiles"])
+        self.assertEqual(article_ingestor.profiles_to_run, ["science_daily"])
+        self.assertEqual(article_ingestor.resolved_limit, 3)
+        self.assertEqual(article_ingestor.checkpoint_directory, Path("checkpoints/custom"))
+        self.assertEqual(article_ingestor.run_timestamp, "20260428T010203Z")
 
 
 class TestArticleIngestorLoadConfig(unittest.TestCase):
@@ -280,21 +310,11 @@ class TestArticleIngestorRun(unittest.TestCase):
         """run: aggregates profiles and writes checkpoints when enabled."""
         article_ingestor = _build_article_ingestor()
         client = Mock()
-        parser = Mock()
-        parser.parse.return_value = {
-            "profiles": {
-                "technology_daily": {"topic": "technology"},
-                "science_daily": {"topic": "science"},
-            },
-            "article_ingestor": {
-                "profiles_to_run": ["technology_daily", "science_daily"],
-                "limit_per_profile": 2,
-                "save_local_checkpoint": True,
-                "checkpoint_dir": "checkpoints/article_ingestor",
-            },
-        }
         article_ingestor.client = client
-        article_ingestor.parser = parser
+        article_ingestor.profiles_to_run = ["technology_daily", "science_daily"]
+        article_ingestor.resolved_limit = 2
+        article_ingestor.checkpoint_directory = Path("checkpoints/article_ingestor")
+        article_ingestor.run_timestamp = "20260428T010203Z"
         article_ingestor.collect_profile_articles = Mock(
             side_effect=[
                 {
@@ -319,11 +339,7 @@ class TestArticleIngestorRun(unittest.TestCase):
             side_effect=["checkpoint_1.json", "checkpoint_2.json"]
         )
 
-        with patch("src.ingestion.article_ingestor.datetime") as mock_datetime:
-            mock_now = Mock()
-            mock_now.strftime.return_value = "20260428T010203Z"
-            mock_datetime.now.return_value = mock_now
-            result = article_ingestor.run()
+        result = article_ingestor.run()
 
         self.assertEqual(result["profile_count"], 2)
         self.assertEqual(result["profiles_run"], ["technology_daily", "science_daily"])
@@ -344,13 +360,12 @@ class TestArticleIngestorRun(unittest.TestCase):
 
     def test_run_uses_configured_limit_without_checkpoints(self):
         """run: uses configured limit and skips checkpointing when disabled."""
-        article_ingestor = _build_article_ingestor()
-        parser = Mock()
-        parser.parse.return_value = {
-            "profiles": {"technology_daily": {"topic": "technology"}},
-            "article_ingestor": {"limit_per_profile": 2, "save_local_checkpoint": False},
-        }
-        article_ingestor.parser = parser
+        article_ingestor = _build_article_ingestor(
+            {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"limit_per_profile": 2, "save_local_checkpoint": False},
+            }
+        )
         article_ingestor.collect_profile_articles = Mock(
             return_value={
                 "profile": "technology_daily",
@@ -371,18 +386,15 @@ class TestArticleIngestorRun(unittest.TestCase):
             limit=2,
         )
 
-    def test_run_rejects_invalid_configured_limit(self):
-        """run: rejects invalid configured limit values."""
-        article_ingestor = _build_article_ingestor()
-        parser = Mock()
-        parser.parse.return_value = {
-            "profiles": {"technology_daily": {"topic": "technology"}},
-            "article_ingestor": {"limit_per_profile": 0},
-        }
-        article_ingestor.parser = parser
-
+    def test_init_rejects_invalid_configured_limit(self):
+        """__init__: rejects invalid configured limit values."""
         with self.assertRaises(ValueError):
-            article_ingestor.run()
+            _build_article_ingestor(
+                {
+                    "profiles": {"technology_daily": {"topic": "technology"}},
+                    "article_ingestor": {"limit_per_profile": 0},
+                }
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover

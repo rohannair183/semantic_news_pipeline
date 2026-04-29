@@ -17,6 +17,11 @@ class ArticleIngestor:
         """Initialize ingestion dependencies."""
         self.client = GuardianClient()
         self.parser = YAMLConfigParser()
+        self.config = self.load_config()
+        self.profiles_to_run = self._resolve_profiles_to_run(self.config)
+        self.resolved_limit = self._resolve_limit(config=self.config)
+        self.checkpoint_directory = self._resolve_checkpoint_directory(config=self.config)
+        self.run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     def load_config(self) -> Dict[str, Any]:
         """Load ingestion configuration from YAML.
@@ -186,30 +191,24 @@ class ArticleIngestor:
         Returns:
             Dict[str, Any]: Top-level ingestion summary and per-profile results.
         """
-        config = self.load_config()
-        profiles_to_run = self._resolve_profiles_to_run(config)
-        resolved_limit = self._resolve_limit(config=config)
-        checkpoint_directory = self._resolve_checkpoint_directory(config=config)
-        run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
         profile_results: List[Dict[str, Any]] = []
         checkpoint_files: List[str] = []
-        for profile in profiles_to_run:
-            profile_result = self.collect_profile_articles(profile=profile, limit=resolved_limit)
+        for profile in self.profiles_to_run:
+            profile_result = self.collect_profile_articles(profile=profile, limit=self.resolved_limit)
             profile_results.append(profile_result)
-            if checkpoint_directory is not None:
+            if self.checkpoint_directory is not None:
                 checkpoint_files.append(
                     self.write_profile_checkpoint(
                         profile_result=profile_result,
-                        checkpoint_directory=checkpoint_directory,
-                        run_timestamp=run_timestamp,
+                        checkpoint_directory=self.checkpoint_directory,
+                        run_timestamp=self.run_timestamp,
                     )
                 )
 
         return {
             "profile_count": len(profile_results),
-            "profiles_run": profiles_to_run,
-            "limit_per_profile": resolved_limit,
+            "profiles_run": self.profiles_to_run,
+            "limit_per_profile": self.resolved_limit,
             "checkpoint_files": checkpoint_files,
             "searched_count": sum(result["searched_count"] for result in profile_results),
             "fetched_count": sum(result["fetched_count"] for result in profile_results),
