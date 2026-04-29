@@ -62,7 +62,7 @@ class ArticleNormalizer:
         token = stem.split("_")[-1]
         try:
             return datetime.strptime(token, "%Y%m%dT%H%M%SZ")
-        except Exception:
+        except ValueError:
             return None
 
     def _list_profile_files(self, profile: str):
@@ -118,7 +118,7 @@ class ArticleNormalizer:
             if value.endswith("Z"):
                 value = value.replace("Z", "+00:00")
             return datetime.fromisoformat(value)
-        except Exception:
+        except ValueError:
             return None
 
     def normalize_checkpoint(

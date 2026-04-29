@@ -3,7 +3,7 @@
 import json
 import tempfile
 import unittest
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -101,12 +101,12 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
             tmppath = Path(tmpdir)
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
-            
+
             # Create test files
             (checkpoint_dir / "tech_daily_20260428T100000Z.json").touch()
             (checkpoint_dir / "tech_daily_20260427T100000Z.json").touch()
             (checkpoint_dir / "science_daily_20260428T100000Z.json").touch()
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -115,7 +115,7 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 # pylint: disable=protected-access
                 files = normalizer._list_profile_files("tech_daily")
                 # pylint: enable=protected-access
@@ -127,7 +127,7 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
             tmppath = Path(tmpdir)
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -136,7 +136,7 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 # pylint: disable=protected-access
                 files = normalizer._list_profile_files("nonexistent")
                 # pylint: enable=protected-access
@@ -182,12 +182,12 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             tmppath = Path(tmpdir)
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
-            
+
             # Create checkpoints for tech_daily on same day
             (checkpoint_dir / "tech_daily_20260428T100000Z.json").touch()
             (checkpoint_dir / "tech_daily_20260428T200000Z.json").touch()
             (checkpoint_dir / "science_daily_20260428T150000Z.json").touch()
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -196,10 +196,10 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 day = date(2026, 4, 28)
                 latest = normalizer.find_latest_checkpoints_for_date(day)
-                
+
                 self.assertIn("tech_daily", latest)
                 self.assertIn("science_daily", latest)
                 self.assertIn("20260428T200000Z", str(latest["tech_daily"]))
@@ -210,9 +210,9 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             tmppath = Path(tmpdir)
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
-            
+
             (checkpoint_dir / "tech_daily_20260427T100000Z.json").touch()
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -221,7 +221,7 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 day = date(2026, 4, 28)
                 latest = normalizer.find_latest_checkpoints_for_date(day)
                 self.assertEqual(len(latest), 0)
@@ -232,10 +232,10 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             tmppath = Path(tmpdir)
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
-            
+
             (checkpoint_dir / "tech_daily_invalid.json").touch()
             (checkpoint_dir / "tech_daily_20260428T100000Z.json").touch()
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -244,10 +244,10 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 day = date(2026, 4, 28)
                 latest = normalizer.find_latest_checkpoints_for_date(day)
-                
+
                 self.assertEqual(len(latest), 1)
                 self.assertIn("tech_daily", latest)
 
@@ -260,7 +260,7 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             checkpoint_file = tmppath / "test_checkpoint.json"
-            
+
             checkpoint_data = {
                 "profile": "test_profile",
                 "items": [
@@ -283,13 +283,13 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
                     }
                 ],
             }
-            
-            with open(checkpoint_file, "w") as f:
+
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
-            
+
             normalizer = _build_article_normalizer(tmppath)
             df = normalizer.normalize_checkpoint(checkpoint_file)
-            
+
             self.assertEqual(len(df), 1)
             self.assertEqual(df.iloc[0]["api_id"], "article-1")
             self.assertEqual(df.iloc[0]["headline"], "Test Headline")
@@ -300,18 +300,18 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             checkpoint_file = tmppath / "test_checkpoint.json"
-            
+
             checkpoint_data = {
                 "profile": "original_profile",
                 "items": [{"id": "article-1", "fields": {}}],
             }
-            
-            with open(checkpoint_file, "w") as f:
+
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
-            
+
             normalizer = _build_article_normalizer(tmppath)
             df = normalizer.normalize_checkpoint(checkpoint_file, profile="override_profile")
-            
+
             self.assertEqual(df.iloc[0]["profile"], "override_profile")
 
     def test_normalize_checkpoint_empty_items(self):
@@ -319,15 +319,15 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             checkpoint_file = tmppath / "test_checkpoint.json"
-            
+
             checkpoint_data = {"profile": "test", "items": []}
-            
-            with open(checkpoint_file, "w") as f:
+
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
-            
+
             normalizer = _build_article_normalizer(tmppath)
             df = normalizer.normalize_checkpoint(checkpoint_file)
-            
+
             self.assertEqual(len(df), 0)
 
     def test_normalize_checkpoint_handles_missing_fields(self):
@@ -335,18 +335,18 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             checkpoint_file = tmppath / "test_checkpoint.json"
-            
+
             checkpoint_data = {
                 "profile": "test",
                 "items": [{"id": "article-1"}],
             }
-            
-            with open(checkpoint_file, "w") as f:
+
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
-            
+
             normalizer = _build_article_normalizer(tmppath)
             df = normalizer.normalize_checkpoint(checkpoint_file)
-            
+
             self.assertEqual(len(df), 1)
             self.assertIsNone(df.iloc[0]["headline"])
 
@@ -359,7 +359,7 @@ class TestArticleNormalizerWriteParquet(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmppath = Path(tmpdir)
             parquet_dir = tmppath / "parquet"
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -368,10 +368,10 @@ class TestArticleNormalizerWriteParquet(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 df = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
                 day = date(2026, 4, 28)
-                
+
                 with patch.object(df, "to_parquet"):
                     # pylint: disable=protected-access
                     out_path = normalizer._write_parquet(df, "tech", day)
@@ -391,7 +391,7 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
             parquet_dir = tmppath / "parquet"
-            
+
             checkpoint_file = checkpoint_dir / "tech_daily_20260428T100000Z.json"
             checkpoint_data = {
                 "profile": "tech_daily",
@@ -403,10 +403,10 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                     }
                 ],
             }
-            
-            with open(checkpoint_file, "w") as f:
+
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -418,7 +418,7 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 day = date(2026, 4, 28)
                 with patch("src.ingestion.article_normalizer.pd.DataFrame.to_parquet"):
                     written = normalizer.normalize_day_to_parquet(day)
@@ -430,7 +430,7 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
             tmppath = Path(tmpdir)
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -439,10 +439,10 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 day = date(2026, 4, 28)
                 written = normalizer.normalize_day_to_parquet(day)
-                
+
                 self.assertEqual(len(written), 0)
 
     def test_normalize_day_to_parquet_skips_empty_dataframes(self):
@@ -451,16 +451,16 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
             tmppath = Path(tmpdir)
             checkpoint_dir = tmppath / "checkpoints"
             checkpoint_dir.mkdir()
-            
+
             checkpoint_file = checkpoint_dir / "tech_daily_20260428T100000Z.json"
             checkpoint_data = {
                 "profile": "tech_daily",
                 "items": [],
             }
-            
-            with open(checkpoint_file, "w") as f:
+
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(checkpoint_data, f)
-            
+
             with patch("src.ingestion.article_normalizer.YAMLConfigParser") as mock_parser_class:
                 mock_parser = Mock()
                 mock_parser.parse.return_value = {
@@ -472,10 +472,10 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                 }
                 mock_parser_class.return_value = mock_parser
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
-                
+
                 day = date(2026, 4, 28)
                 written = normalizer.normalize_day_to_parquet(day)
-                
+
                 self.assertEqual(len(written), 0)
 
 
