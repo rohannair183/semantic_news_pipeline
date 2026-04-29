@@ -8,17 +8,45 @@ from typing import Any, Dict, Optional
 from unittest.mock import Mock
 from unittest.mock import patch
 
+from src.config.settings import ArticleIngestorConfig
+from src.ingestion.article_ingestor import ArticleIngestor
 from tests.unit.ingestion.test_config_helpers import build_ingestion_config
 
-from src.ingestion.article_ingestor import ArticleIngestor
+
+def _build_article_ingestor_config(
+    config: Optional[Dict[str, Any]] = None,
+) -> ArticleIngestorConfig:
+    if config is None:
+        config = build_ingestion_config(save_local_checkpoint=False)
+
+    article_ingestor_config = config.get("article_ingestor", {}) or {}
+    profile_names = list(config["profiles"].keys())
+    selected_profiles = article_ingestor_config.get("profiles_to_run")
+    if selected_profiles is None:
+        selected_profiles = profile_names
+
+    checkpoint_dir = None
+    if article_ingestor_config.get("save_local_checkpoint", False):
+        checkpoint_dir_value = article_ingestor_config.get("checkpoint_dir")
+        if checkpoint_dir_value is not None:
+            checkpoint_dir = Path(str(checkpoint_dir_value))
+
+    return ArticleIngestorConfig(
+        profile_names=profile_names,
+        profiles_to_run=[str(profile_name) for profile_name in selected_profiles],
+        limit_per_profile=article_ingestor_config.get("limit_per_profile"),
+        save_local_checkpoint=bool(article_ingestor_config.get("save_local_checkpoint", False)),
+        checkpoint_dir=checkpoint_dir,
+    )
 
 
 def _build_article_ingestor(config: Optional[Dict[str, Any]] = None) -> ArticleIngestor:
     if config is None:
         config = build_ingestion_config(save_local_checkpoint=False)
+    typed_config = _build_article_ingestor_config(config)
     with patch("src.ingestion.article_ingestor.GuardianClient") as mock_client_class, patch(
-        "src.ingestion.article_ingestor.Settings.load_ingestion_config",
-        return_value=config,
+        "src.ingestion.article_ingestor.Settings.load_article_ingestor_config",
+        return_value=typed_config,
     ):
         mock_client_class.return_value = Mock()
         return ArticleIngestor()
@@ -28,35 +56,29 @@ class TestArticleIngestorInit(unittest.TestCase):
     """This class tests __init__."""
 
     @patch("src.ingestion.article_ingestor.GuardianClient")
-    @patch("src.ingestion.article_ingestor.Settings.load_ingestion_config")
-    @patch("src.ingestion.article_ingestor.datetime")
-    def test_init_with_defaults(self, mock_datetime, mock_load_config, mock_client_class):
+    @patch("src.ingestion.article_ingestor.Settings.load_article_ingestor_config")
+    @patch("src.ingestion.article_ingestor.utc_now_checkpoint_token")
+    def test_init_with_defaults(self, mock_run_timestamp, mock_load_config, mock_client_class):
         """__init__: constructor creates dependencies and caches resolved config state."""
         mock_client = Mock()
-        mock_now = Mock()
-        mock_now.strftime.return_value = "20260428T010203Z"
         mock_client_class.return_value = mock_client
-        mock_load_config.return_value = {
-            "profiles": {
-                "technology_daily": {"topic": "technology"},
-                "science_daily": {"topic": "science"},
-            },
-            "article_ingestor": {
-                "profiles_to_run": ["science_daily"],
-                "limit_per_profile": 3,
-                "save_local_checkpoint": True,
-                "checkpoint_dir": "checkpoints/custom",
-            },
-        }
-        mock_datetime.now.return_value = mock_now
+        mock_run_timestamp.return_value = "20260428T010203Z"
+        mock_load_config.return_value = _build_article_ingestor_config(
+            build_ingestion_config(
+                profiles_to_run=["science_daily"],
+                limit_per_profile=3,
+                save_local_checkpoint=True,
+                checkpoint_dir="checkpoints/custom",
+            )
+        )
 
         article_ingestor = ArticleIngestor()
 
         self.assertIsInstance(article_ingestor, ArticleIngestor)
         self.assertIs(article_ingestor.client, mock_client)
         self.assertEqual(
-            article_ingestor.config["profiles"],
-            mock_load_config.return_value["profiles"],
+            article_ingestor.config.profile_names,
+            ["technology_daily", "science_daily"],
         )
         self.assertEqual(article_ingestor.profiles_to_run, ["science_daily"])
         self.assertEqual(article_ingestor.resolved_limit, 3)
@@ -72,12 +94,14 @@ class TestArticleIngestorLoadConfig(unittest.TestCase):
         """load_config: Settings loader is called for ingestion config."""
         article_ingestor = _build_article_ingestor()
         with patch(
-            "src.ingestion.article_ingestor.Settings.load_ingestion_config",
-            return_value={"profiles": {"technology_daily": {"topic": "technology"}}},
+            "src.ingestion.article_ingestor.Settings.load_article_ingestor_config",
+            return_value=_build_article_ingestor_config(
+                {"profiles": {"technology_daily": {"topic": "technology"}}}
+            ),
         ) as mock_load_config:
             result = article_ingestor.load_config()
 
-        self.assertEqual(result, {"profiles": {"technology_daily": {"topic": "technology"}}})
+        self.assertEqual(result.profile_names, ["technology_daily"])
         mock_load_config.assert_called_once_with()
 
 
@@ -89,73 +113,30 @@ class TestArticleIngestorResolveProfilesToRun(unittest.TestCase):
 
     def test_resolve_profiles_defaults_to_all_profiles(self):
         """_resolve_profiles_to_run: returns all profiles when selection is absent."""
-        config = {
-            "profiles": {
-                "technology_daily": {"topic": "technology"},
-                "science_daily": {"topic": "science"},
+        config = _build_article_ingestor_config(
+            {
+                "profiles": {
+                    "technology_daily": {"topic": "technology"},
+                    "science_daily": {"topic": "science"},
+                }
             }
-        }
+        )
         resolved = self.article_ingestor._resolve_profiles_to_run(config)  # pylint: disable=protected-access
         self.assertEqual(resolved, ["technology_daily", "science_daily"])
 
     def test_resolve_profiles_returns_selected_profiles(self):
         """_resolve_profiles_to_run: returns selected profile names."""
-        config = {
-            "profiles": {
-                "technology_daily": {"topic": "technology"},
-                "science_daily": {"topic": "science"},
-            },
-            "article_ingestor": {"profiles_to_run": ["science_daily"]},
-        }
+        config = _build_article_ingestor_config(
+            {
+                "profiles": {
+                    "technology_daily": {"topic": "technology"},
+                    "science_daily": {"topic": "science"},
+                },
+                "article_ingestor": {"profiles_to_run": ["science_daily"]},
+            }
+        )
         resolved = self.article_ingestor._resolve_profiles_to_run(config)  # pylint: disable=protected-access
         self.assertEqual(resolved, ["science_daily"])
-
-    def test_resolve_profiles_allows_none_article_ingestor_config(self):
-        """_resolve_profiles_to_run: treats null article_ingestor config as empty."""
-        config = {
-            "profiles": {"technology_daily": {"topic": "technology"}},
-            "article_ingestor": None,
-        }
-        resolved = self.article_ingestor._resolve_profiles_to_run(config)  # pylint: disable=protected-access
-        self.assertEqual(resolved, ["technology_daily"])
-
-    def test_resolve_profiles_rejects_invalid_config_shapes(self):
-        """_resolve_profiles_to_run: raises ValueError for malformed selection config."""
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_profiles_to_run({})  # pylint: disable=protected-access
-
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_profiles_to_run(  # pylint: disable=protected-access
-                {
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": [],
-                }
-            )
-
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_profiles_to_run(  # pylint: disable=protected-access
-                {
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {"profiles_to_run": "technology_daily"},
-                }
-            )
-
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_profiles_to_run(  # pylint: disable=protected-access
-                {
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {"profiles_to_run": []},
-                }
-            )
-
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_profiles_to_run(  # pylint: disable=protected-access
-                {
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {"profiles_to_run": ["science_daily"]},
-                }
-            )
-
 
 class TestArticleIngestorCollectProfileArticles(unittest.TestCase):
     """This class tests collect_profile_articles."""
@@ -199,38 +180,25 @@ class TestArticleIngestorResolveLimit(unittest.TestCase):
         """_resolve_limit: returns None when config or limit value is missing."""
         self.assertIsNone(
             self.article_ingestor._resolve_limit(  # pylint: disable=protected-access
-                config={
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": None,
-                },
+                config=_build_article_ingestor_config(
+                    {
+                        "profiles": {"technology_daily": {"topic": "technology"}},
+                        "article_ingestor": {"save_local_checkpoint": False},
+                    }
+                )
             )
         )
-        self.assertIsNone(
+        self.assertEqual(
             self.article_ingestor._resolve_limit(  # pylint: disable=protected-access
-                config={
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {},
-                },
-            )
+                config=_build_article_ingestor_config(
+                    {
+                        "profiles": {"technology_daily": {"topic": "technology"}},
+                        "article_ingestor": {"limit_per_profile": 4},
+                    }
+                )
+            ),
+            4,
         )
-
-    def test_resolve_limit_rejects_non_mapping_and_invalid_values(self):
-        """_resolve_limit: raises ValueError for malformed or invalid limits."""
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_limit(  # pylint: disable=protected-access
-                config={
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": [],
-                },
-            )
-
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_limit(  # pylint: disable=protected-access
-                config={
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {"limit_per_profile": 0},
-                },
-            )
 
 
 class TestArticleIngestorResolveCheckpointDirectory(unittest.TestCase):
@@ -242,46 +210,29 @@ class TestArticleIngestorResolveCheckpointDirectory(unittest.TestCase):
     def test_resolve_checkpoint_directory_returns_none_by_default(self):
         """_resolve_checkpoint_directory: defaults to no checkpointing."""
         result = self.article_ingestor._resolve_checkpoint_directory(  # pylint: disable=protected-access
-            config={"profiles": {"technology_daily": {"topic": "technology"}}}
-        )
-        self.assertIsNone(result)
-        self.assertIsNone(
-            self.article_ingestor._resolve_checkpoint_directory(  # pylint: disable=protected-access
-                config={
+            config=_build_article_ingestor_config(
+                {
                     "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": None,
+                    "article_ingestor": {"save_local_checkpoint": False},
                 }
             )
         )
+        self.assertIsNone(result)
 
     def test_resolve_checkpoint_directory_validates_and_resolves_directory(self):
         """_resolve_checkpoint_directory: validates config and resolves path."""
         result = self.article_ingestor._resolve_checkpoint_directory(  # pylint: disable=protected-access
-            config={
-                "profiles": {"technology_daily": {"topic": "technology"}},
-                "article_ingestor": {
-                    "save_local_checkpoint": True,
-                    "checkpoint_dir": "checkpoints/custom",
-                },
-            }
+            config=_build_article_ingestor_config(
+                {
+                    "profiles": {"technology_daily": {"topic": "technology"}},
+                    "article_ingestor": {
+                        "save_local_checkpoint": True,
+                        "checkpoint_dir": "checkpoints/custom",
+                    },
+                }
+            )
         )
         self.assertEqual(result, Path("checkpoints/custom"))
-
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_checkpoint_directory(  # pylint: disable=protected-access
-                config={
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": [],
-                },
-            )
-
-        with self.assertRaises(ValueError):
-            self.article_ingestor._resolve_checkpoint_directory(  # pylint: disable=protected-access
-                config={
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {"save_local_checkpoint": "yes"},
-                },
-            )
 
 
 class TestArticleIngestorWriteProfileCheckpoint(unittest.TestCase):
@@ -387,13 +338,14 @@ class TestArticleIngestorRun(unittest.TestCase):
 
     def test_init_rejects_invalid_configured_limit(self):
         """__init__: rejects invalid configured limit values."""
-        with self.assertRaises(ValueError):
-            _build_article_ingestor(
-                {
-                    "profiles": {"technology_daily": {"topic": "technology"}},
-                    "article_ingestor": {"limit_per_profile": 0},
-                }
-            )
+        with patch("src.ingestion.article_ingestor.GuardianClient"), patch(
+            "src.ingestion.article_ingestor.Settings.load_article_ingestor_config",
+            side_effect=ValueError(
+                "Ingestion config field 'article_ingestor.limit_per_profile' must be >= 1"
+            ),
+        ):
+            with self.assertRaises(ValueError):
+                ArticleIngestor()
 
 
 if __name__ == "__main__":  # pragma: no cover

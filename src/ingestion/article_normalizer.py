@@ -9,7 +9,13 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
-from src.config.settings import Settings
+from src.config.settings import ArticleNormalizerConfig, Settings
+from src.util.dates import (
+    format_day_compact,
+    format_day_iso,
+    parse_checkpoint_timestamp,
+    parse_guardian_datetime,
+)
 
 
 class ArticleNormalizer:
@@ -29,40 +35,27 @@ class ArticleNormalizer:
         Parameters:
             configuration_root: Root directory for config files. If None, auto-resolved.
         """
-        config = Settings.load_ingestion_config_from_root(configuration_root=configuration_root)
+        config = Settings.load_article_normalizer_config(configuration_root=configuration_root)
         self._config = config
-        article_cfg = config.get("article_ingestor", {}) or {}
         self._row_mappings = self._resolve_row_mappings(config)
 
-        checkpoint_dir = article_cfg.get("checkpoint_dir", "checkpoints/article_ingestor")
-        parquet_dir = article_cfg.get("parquet_dir", "checkpoints/parquet")
+        self.checkpoint_dir = config.checkpoint_dir
+        self.parquet_dir = config.parquet_dir
+        self.profiles = list(config.profile_names)
 
-        self.checkpoint_dir = Path(str(checkpoint_dir))
-        self.parquet_dir = Path(str(parquet_dir))
-
-        profiles = config.get("profiles") or {}
-        if not isinstance(profiles, dict):
-            raise ValueError("ingestion config must contain a 'profiles' mapping")
-        self.profiles = list(profiles.keys())
-
-    def _resolve_row_mappings(self, config: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def _resolve_row_mappings(
+        self,
+        config: ArticleNormalizerConfig,
+    ) -> Dict[str, Dict[str, Any]]:
         """Resolve required row mapping rules from config.
 
         Parameters:
-            config: Full ingestion configuration dict.
+            config: Typed ingestion configuration.
 
         Returns:
             Row mappings dict from article_normalizer.row_mappings in config.
         """
-        article_normalizer_cfg = config.get("article_normalizer")
-        if article_normalizer_cfg is None or not isinstance(article_normalizer_cfg, dict):
-            raise ValueError("ingestion config must contain an 'article_normalizer' mapping")
-
-        row_mappings = article_normalizer_cfg.get("row_mappings")
-        if not isinstance(row_mappings, dict) or not row_mappings:
-            raise ValueError("ingestion config must contain a non-empty 'row_mappings' mapping")
-
-        return row_mappings
+        return config.row_mappings
 
     @staticmethod
     def _resolve_nested_value(source: Dict[str, Any], dotted_path: str) -> Any:
@@ -202,14 +195,7 @@ class ArticleNormalizer:
         Returns:
             Parsed datetime or None if filename format is invalid.
         """
-        stem = path.stem  # e.g. technology_daily_20260428T221904Z
-        if "_" not in stem:
-            return None
-        token = stem.split("_")[-1]
-        try:
-            return datetime.strptime(token, "%Y%m%dT%H%M%SZ")
-        except ValueError:
-            return None
+        return parse_checkpoint_timestamp(path)
 
     def _list_profile_files(self, profile: str):
         """List all JSON checkpoint files for a profile.
@@ -232,6 +218,7 @@ class ArticleNormalizer:
         Returns:
             Dict mapping profile name to latest checkpoint Path on that day.
         """
+        self._ensure_day(day)
         found: Dict[str, Path] = {}
         for profile in self.profiles:
             files = self._list_profile_files(profile)
@@ -258,14 +245,12 @@ class ArticleNormalizer:
         Returns:
             Parsed datetime or None if parsing fails.
         """
-        if not value:
-            return None
-        try:
-            if value.endswith("Z"):
-                value = value.replace("Z", "+00:00")
-            return datetime.fromisoformat(value)
-        except ValueError:
-            return None
+        return parse_guardian_datetime(value)
+
+    @staticmethod
+    def _ensure_day(day: date) -> None:
+        if isinstance(day, datetime) or not isinstance(day, date):
+            raise TypeError("day must be a date instance")
 
     def normalize_checkpoint(
         self, checkpoint_path: Path, profile: Optional[str] = None
@@ -310,9 +295,10 @@ class ArticleNormalizer:
         Returns:
             Path to written Parquet file.
         """
-        out_dir = self.parquet_dir / profile / day.strftime("%Y-%m-%d")
+        self._ensure_day(day)
+        out_dir = self.parquet_dir / profile / format_day_iso(day)
         out_dir.mkdir(parents=True, exist_ok=True)
-        out_path = out_dir / f"{profile}_{day.strftime('%Y%m%d')}.parquet"
+        out_path = out_dir / f"{profile}_{format_day_compact(day)}.parquet"
         df.to_parquet(out_path, index=False)
         return out_path
 
@@ -328,6 +314,7 @@ class ArticleNormalizer:
         Returns:
             Dict mapping profile name to written Parquet file path.
         """
+        self._ensure_day(day)
         checkpoints = self.find_latest_checkpoints_for_date(day)
         written: Dict[str, str] = {}
         for profile, path in checkpoints.items():

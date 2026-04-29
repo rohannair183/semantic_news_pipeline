@@ -3,12 +3,14 @@
 import json
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from typing import Any, Dict, Optional, cast
 from unittest.mock import patch
 
 import pandas as pd
 
+from src.config.settings import ArticleNormalizerConfig
 from src.ingestion.article_normalizer import ArticleNormalizer
 from tests.unit.ingestion.test_config_helpers import (
     NORMALIZER_ROW_MAPPINGS,
@@ -16,14 +18,34 @@ from tests.unit.ingestion.test_config_helpers import (
 )
 
 
-def _build_article_normalizer(config_root: Path) -> ArticleNormalizer:
-    with patch(
-        "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
-    ) as mock_load_config:
-        mock_load_config.return_value = build_normalizer_config(
+def _build_article_normalizer_config(
+    config_root: Path,
+    config: Optional[Dict[str, Any]] = None,
+) -> ArticleNormalizerConfig:
+    if config is None:
+        config = build_normalizer_config(
             checkpoint_dir=str(config_root / "checkpoints"),
             parquet_dir=str(config_root / "parquet"),
         )
+
+    article_ingestor_config = config.get("article_ingestor", {}) or {}
+    article_normalizer_config = config["article_normalizer"]
+
+    return ArticleNormalizerConfig(
+        profile_names=list(config["profiles"].keys()),
+        checkpoint_dir=Path(
+            str(article_ingestor_config.get("checkpoint_dir", "checkpoints/article_ingestor"))
+        ),
+        parquet_dir=Path(str(article_ingestor_config.get("parquet_dir", "checkpoints/parquet"))),
+        row_mappings=article_normalizer_config["row_mappings"],
+    )
+
+
+def _build_article_normalizer(config_root: Path) -> ArticleNormalizer:
+    with patch(
+        "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
+    ) as mock_load_config:
+        mock_load_config.return_value = _build_article_normalizer_config(config_root)
         return ArticleNormalizer(configuration_root=config_root)
 
 
@@ -42,12 +64,11 @@ class TestArticleNormalizerInit(unittest.TestCase):
         """__init__: raises ValueError if profiles is not a dict."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
-                    "profiles": "not a dict",
-                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                mock_load_config.side_effect = ValueError(
+                    "Ingestion config must define a non-empty 'profiles' mapping"
+                )
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
@@ -55,13 +76,16 @@ class TestArticleNormalizerInit(unittest.TestCase):
         """__init__: uses default parquet_dir if not in config."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    Path(tmpdir),
+                    {
                     "profiles": {"test": {}},
                     "article_ingestor": {"checkpoint_dir": str(Path(tmpdir) / "check")},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=Path(tmpdir))
                 self.assertIn("parquet", str(normalizer.parquet_dir))
 
@@ -69,12 +93,11 @@ class TestArticleNormalizerInit(unittest.TestCase):
         """__init__: raises ValueError if article_normalizer is not a mapping."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
-                    "profiles": {"test": {}},
-                    "article_normalizer": [],
-                }
+                mock_load_config.side_effect = ValueError(
+                    "Ingestion config must contain an 'article_normalizer' mapping"
+                )
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
@@ -82,12 +105,11 @@ class TestArticleNormalizerInit(unittest.TestCase):
         """__init__: raises ValueError if article_normalizer is null."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
-                    "profiles": {"test": {}},
-                    "article_normalizer": None,
-                }
+                mock_load_config.side_effect = ValueError(
+                    "Ingestion config must contain an 'article_normalizer' mapping"
+                )
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
@@ -95,12 +117,11 @@ class TestArticleNormalizerInit(unittest.TestCase):
         """__init__: raises ValueError if row_mappings are missing."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
-                    "profiles": {"test": {}},
-                    "article_normalizer": {},
-                }
+                mock_load_config.side_effect = ValueError(
+                    "Ingestion config must contain a non-empty 'row_mappings' mapping"
+                )
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
@@ -108,12 +129,11 @@ class TestArticleNormalizerInit(unittest.TestCase):
         """__init__: raises ValueError if row_mappings is empty."""
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
-                    "profiles": {"test": {}},
-                    "article_normalizer": {"row_mappings": {}},
-                }
+                mock_load_config.side_effect = ValueError(
+                    "Ingestion config must contain a non-empty 'row_mappings' mapping"
+                )
                 with self.assertRaises(ValueError):
                     ArticleNormalizer(configuration_root=Path(tmpdir))
 
@@ -129,6 +149,8 @@ class TestArticleNormalizerParseTS(unittest.TestCase):
         """_parse_ts_from_filename: parses valid timestamp from filename."""
         path = Path("technology_daily_20260428T221904Z.json")
         ts = self.normalizer._parse_ts_from_filename(path)  # pylint: disable=protected-access
+        self.assertIsNotNone(ts)
+        ts = cast(datetime, ts)
         self.assertEqual(ts.year, 2026)
         self.assertEqual(ts.month, 4)
         self.assertEqual(ts.day, 28)
@@ -162,13 +184,16 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
             (checkpoint_dir / "science_daily_20260428T100000Z.json").touch()
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}, "science_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 # pylint: disable=protected-access
@@ -184,13 +209,16 @@ class TestArticleNormalizerListProfileFiles(unittest.TestCase):
             checkpoint_dir.mkdir()
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 # pylint: disable=protected-access
@@ -207,6 +235,8 @@ class TestArticleNormalizerParseISO(unittest.TestCase):
         # pylint: disable=protected-access
         dt = ArticleNormalizer._parse_iso("2026-04-28T22:19:04Z")
         # pylint: enable=protected-access
+        self.assertIsNotNone(dt)
+        dt = cast(datetime, dt)
         self.assertEqual(dt.year, 2026)
         self.assertEqual(dt.month, 4)
         self.assertEqual(dt.day, 28)
@@ -216,6 +246,8 @@ class TestArticleNormalizerParseISO(unittest.TestCase):
         # pylint: disable=protected-access
         dt = ArticleNormalizer._parse_iso("2026-04-28T22:19:04+00:00")
         # pylint: enable=protected-access
+        self.assertIsNotNone(dt)
+        dt = cast(datetime, dt)
         self.assertEqual(dt.year, 2026)
 
     def test_parse_iso_returns_none_for_invalid(self):
@@ -299,13 +331,16 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             (checkpoint_dir / "science_daily_20260428T150000Z.json").touch()
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}, "science_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -325,13 +360,16 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             (checkpoint_dir / "tech_daily_20260427T100000Z.json").touch()
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -349,13 +387,16 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
             (checkpoint_dir / "tech_daily_20260428T100000Z.json").touch()
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -432,7 +473,7 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
                 json.dump(checkpoint_data, f)
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
                 config = build_normalizer_config(
                     checkpoint_dir=str(tmppath / "checkpoints"),
@@ -441,13 +482,17 @@ class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
                 config["article_normalizer"]["row_mappings"]["web_title"]["sources"] = [
                     "fields.headline"
                 ]
-                mock_load_config.return_value = config
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    config,
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 df = normalizer.normalize_checkpoint(checkpoint_file)
 
                 self.assertEqual(df.iloc[0]["web_title"], "Preferred Title")
                 self.assertEqual(df.iloc[0]["first_publication_date"].year, 2026)
+                self.assertIsInstance(df.iloc[0]["first_publication_date"], datetime)
 
     def test_normalize_checkpoint_override_profile(self):
         """normalize_checkpoint: allows profile override."""
@@ -515,13 +560,16 @@ class TestArticleNormalizerWriteParquet(unittest.TestCase):
             parquet_dir = tmppath / "parquet"
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech": {}},
                     "article_ingestor": {"parquet_dir": str(parquet_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 df = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
@@ -563,16 +611,19 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                 json.dump(checkpoint_data, f)
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {
                         "checkpoint_dir": str(checkpoint_dir),
                         "parquet_dir": str(parquet_dir),
                     },
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -588,13 +639,16 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
             checkpoint_dir.mkdir()
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)
@@ -619,16 +673,19 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                 json.dump(checkpoint_data, f)
 
             with patch(
-                "src.ingestion.article_normalizer.Settings.load_ingestion_config_from_root"
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
             ) as mock_load_config:
-                mock_load_config.return_value = {
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
                     "profiles": {"tech_daily": {}},
                     "article_ingestor": {
                         "checkpoint_dir": str(checkpoint_dir),
                         "parquet_dir": str(tmppath / "parquet"),
                     },
                     "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
-                }
+                    },
+                )
                 normalizer = ArticleNormalizer(configuration_root=tmppath)
 
                 day = date(2026, 4, 28)

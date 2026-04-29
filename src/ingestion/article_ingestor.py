@@ -1,12 +1,12 @@
 """Article ingestion orchestration for Guardian API content."""
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from src.config.settings import Settings
+from src.config.settings import ArticleIngestorConfig, Settings
 from src.ingestion.guardian_client import GuardianClient
+from src.util.dates import utc_now_checkpoint_token
 
 
 class ArticleIngestor:
@@ -19,107 +19,48 @@ class ArticleIngestor:
         self.profiles_to_run = self._resolve_profiles_to_run(self.config)
         self.resolved_limit = self._resolve_limit(config=self.config)
         self.checkpoint_directory = self._resolve_checkpoint_directory(config=self.config)
-        self.run_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        self.run_timestamp = utc_now_checkpoint_token()
 
-    def load_config(self) -> Dict[str, Any]:
-        """Load ingestion configuration from YAML.
+    def load_config(self) -> ArticleIngestorConfig:
+        """Load validated ingestion configuration.
 
         Returns:
-            Dict[str, Any]: Parsed ingestion configuration mapping.
+            ArticleIngestorConfig: Typed ingestion configuration.
         """
-        return Settings.load_ingestion_config()
+        return Settings.load_article_ingestor_config()
 
-    def _resolve_profiles_to_run(self, config: Dict[str, Any]) -> List[str]:
+    def _resolve_profiles_to_run(self, config: ArticleIngestorConfig) -> List[str]:
         """Resolve profile names to ingest.
 
         Parameters:
-            config: Parsed ingestion configuration mapping.
+            config: Typed ingestion configuration.
 
         Returns:
             List[str]: Ordered profile names that should be ingested.
         """
-        profiles = config.get("profiles")
-        if not isinstance(profiles, dict) or not profiles:
-            raise ValueError("Ingestion config must define a non-empty 'profiles' mapping")
+        return list(config.profiles_to_run)
 
-        article_ingestor_config = config.get("article_ingestor", {})
-        if article_ingestor_config is None:
-            article_ingestor_config = {}
-        if not isinstance(article_ingestor_config, dict):
-            raise ValueError("Ingestion config field 'article_ingestor' must be a mapping")
-
-        selected_profiles = article_ingestor_config.get("profiles_to_run")
-        if selected_profiles is None:
-            return list(profiles.keys())
-        if not isinstance(selected_profiles, list):
-            raise ValueError(
-                "Ingestion config field 'article_ingestor.profiles_to_run' must be a list"
-            )
-        if not selected_profiles:
-            raise ValueError(
-                "Ingestion config field 'article_ingestor.profiles_to_run' must not be empty"
-            )
-
-        unknown_profiles = [name for name in selected_profiles if name not in profiles]
-        if unknown_profiles:
-            unknown_values = ", ".join(str(name) for name in unknown_profiles)
-            raise ValueError(f"Unknown ingestion profiles requested: {unknown_values}")
-        return [str(name) for name in selected_profiles]
-
-    def _resolve_limit(self, config: Dict[str, Any]) -> Optional[int]:
+    def _resolve_limit(self, config: ArticleIngestorConfig) -> Optional[int]:
         """Resolve optional per-profile item limit from config.
 
         Parameters:
-            config: Parsed ingestion configuration mapping.
+            config: Typed ingestion configuration.
 
         Returns:
             Optional[int]: Limit resolved from YAML config or None.
         """
-        article_ingestor_config = config.get("article_ingestor", {})
-        if article_ingestor_config is None:
-            return None
-        if not isinstance(article_ingestor_config, dict):
-            raise ValueError("Ingestion config field 'article_ingestor' must be a mapping")
+        return config.limit_per_profile
 
-        configured_limit = article_ingestor_config.get("limit_per_profile")
-        if configured_limit is None:
-            return None
-
-        resolved_limit = int(configured_limit)
-        if resolved_limit < 1:
-            raise ValueError(
-                "Ingestion config field 'article_ingestor.limit_per_profile' must be >= 1"
-            )
-        return resolved_limit
-
-    def _resolve_checkpoint_directory(self, config: Dict[str, Any]) -> Optional[Path]:
+    def _resolve_checkpoint_directory(self, config: ArticleIngestorConfig) -> Optional[Path]:
         """Resolve optional local checkpoint directory from config.
 
         Parameters:
-            config: Parsed ingestion configuration mapping.
+            config: Typed ingestion configuration.
 
         Returns:
             Optional[Path]: Directory path where checkpoints are written, or None.
         """
-        article_ingestor_config = config.get("article_ingestor", {})
-        if article_ingestor_config is None:
-            return None
-        if not isinstance(article_ingestor_config, dict):
-            raise ValueError("Ingestion config field 'article_ingestor' must be a mapping")
-
-        save_local_checkpoint = article_ingestor_config.get("save_local_checkpoint", False)
-        if not isinstance(save_local_checkpoint, bool):
-            raise ValueError(
-                "Ingestion config field 'article_ingestor.save_local_checkpoint' must be a boolean"
-            )
-        if not save_local_checkpoint:
-            return None
-
-        checkpoint_dir = article_ingestor_config.get(
-            "checkpoint_dir",
-            "checkpoints/article_ingestor",
-        )
-        return Path(str(checkpoint_dir))
+        return config.checkpoint_dir
 
     def collect_profile_articles(self, profile: str, limit: Optional[int]) -> Dict[str, Any]:
         """Collect full article content for a configured profile.

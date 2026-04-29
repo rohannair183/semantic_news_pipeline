@@ -6,13 +6,14 @@ responses.
 
 import time
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional
+from datetime import date, datetime
+from typing import Any, Dict, Iterator, List, Optional, Union
 from urllib.parse import quote
 
 import requests
 
 from src.config.settings import Settings
+from src.util.dates import coerce_day, format_day_iso, utc_today_date
 
 
 @dataclass(frozen=True)
@@ -20,7 +21,7 @@ class GuardianSearchRequest:
     """Resolved query settings for a named Guardian search profile."""
 
     topic: str
-    run_date: Optional[Any]
+    run_date: Optional[date]
     page_size: int
     query: Optional[str] = None
     extra_filters: Dict[str, Any] = field(default_factory=dict)
@@ -173,10 +174,12 @@ class GuardianClient:
             raise ValueError(
                 f"Profile '{profile_name}' field 'use_next_fallback' must be a boolean"
             )
+        raw_run_date = raw_profile.get("run_date")
+        resolved_run_date = None if raw_run_date is None else coerce_day(raw_run_date)
 
         return GuardianSearchRequest(
             topic=str(topic),
-            run_date=raw_profile.get("run_date"),
+            run_date=resolved_run_date,
             page_size=page_size,
             query=raw_profile.get("query"),
             extra_filters=dict(extra_filters),
@@ -207,9 +210,12 @@ class GuardianClient:
         Returns:
             str: ISO formatted date string (YYYY-MM-DD) in UTC.
         """
-        return datetime.now(timezone.utc).date().isoformat()
+        return format_day_iso(utc_today_date())
 
-    def _normalize_date(self, run_date: Optional[Any]) -> str:
+    def _normalize_date(
+        self,
+        run_date: Optional[Union[date, datetime, str]],
+    ) -> str:
         """Normalize supported date inputs to YYYY-MM-DD.
 
         Parameters:
@@ -220,16 +226,7 @@ class GuardianClient:
         """
         if run_date is None:
             return self._default_date()
-        if isinstance(run_date, datetime):
-            return run_date.astimezone(timezone.utc).date().isoformat()
-        if isinstance(run_date, date):
-            return run_date.isoformat()
-        if isinstance(run_date, str):
-            try:
-                return date.fromisoformat(run_date).isoformat()
-            except ValueError as exc:
-                raise ValueError("run_date must be in YYYY-MM-DD format") from exc
-        raise ValueError("run_date must be a date, datetime, string, or None")
+        return format_day_iso(coerce_day(run_date))
 
     def _validate_page_size(self, page_size: int) -> int:
         """Validate and return a supported Guardian API page size.
@@ -478,9 +475,10 @@ class GuardianClient:
         payload = params.copy() if params else {}
         page = int(payload.pop("page", 1))
         order_by = payload.pop("order-by", "newest")
+        raw_run_date = payload.pop("run_date", payload.pop("date", None))
         request = GuardianSearchRequest(
             topic=topic,
-            run_date=payload.pop("run_date", payload.pop("date", None)),
+            run_date=None if raw_run_date is None else coerce_day(raw_run_date),
             page_size=self._validate_page_size(
                 int(payload.pop("page-size", payload.pop("page_size", self.default_page_size)))
             ),

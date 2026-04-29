@@ -80,8 +80,10 @@ class TestGuardianClientInit(GuardianClientTestCase):
     def test_init_with_secret_from_settings(self):
         """__init__: initialization succeeds when Settings provides an API key."""
         client = GuardianClient()
+        profiles = getattr(client, "_profiles")
         self.assertIsNotNone(client)
         self.assertEqual(client.api_key, "test_api_key")
+        self.assertEqual(profiles["technology_profile"].run_date, date(2026, 4, 26))
         self.mock_load_settings.assert_called_once_with()
         self.mock_load_config.assert_called_once_with()
 
@@ -325,7 +327,7 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
         build_search_params = getattr(client, "_build_search_params")
         request = GuardianSearchRequest(
             topic="",
-            run_date="2026-04-01",
+            run_date=date(2026, 4, 1),
             page_size=10,
         )
         with self.assertRaises(ValueError):
@@ -333,7 +335,7 @@ class TestGuardianClientBuildSearchParams(GuardianClientTestCase):
 
         request = GuardianSearchRequest(
             topic="technology",
-            run_date="2026-04-01",
+            run_date=date(2026, 4, 1),
             page_size=10,
             query="chips",
             extra_filters={"lang": "en"},
@@ -375,7 +377,7 @@ class TestGuardianClientSearchPage(GuardianClientTestCase):
         client = GuardianClient()
         request = GuardianSearchRequest(
             topic="technology",
-            run_date="2026-04-01",
+            run_date=date(2026, 4, 1),
             page_size=10,
         )
         with patch.object(

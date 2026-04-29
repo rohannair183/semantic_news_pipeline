@@ -218,6 +218,128 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
         )
         self.assertEqual(values, {"base_url": "https://root.test"})
 
+    def test_load_article_ingestor_config_returns_typed_config(self):
+        """load_article_ingestor_config: returns validated typed ingest settings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {
+                    "technology_daily": {"topic": "technology"},
+                    "science_daily": {"topic": "science"},
+                },
+                "article_ingestor": {
+                    "profiles_to_run": ["science_daily"],
+                    "limit_per_profile": 3,
+                    "save_local_checkpoint": True,
+                    "checkpoint_dir": "checkpoints/custom",
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_config = Settings.load_article_ingestor_config(configuration_root=root)
+
+        self.assertEqual(typed_config.profile_names, ["technology_daily", "science_daily"])
+        self.assertEqual(typed_config.profiles_to_run, ["science_daily"])
+        self.assertEqual(typed_config.limit_per_profile, 3)
+        self.assertTrue(typed_config.save_local_checkpoint)
+        self.assertEqual(typed_config.checkpoint_dir, Path("checkpoints/custom"))
+
+    def test_load_article_ingestor_config_raises_for_invalid_profiles_to_run(self):
+        """load_article_ingestor_config: raises for malformed profiles_to_run values."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"profiles_to_run": "technology_daily"},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_ingestor_config(configuration_root=root)
+
+    def test_load_article_ingestor_config_raises_for_invalid_limit(self):
+        """load_article_ingestor_config: raises when limit_per_profile is invalid."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"limit_per_profile": 0},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_ingestor_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_returns_typed_config(self):
+        """load_article_normalizer_config: returns validated typed normalizer settings."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {
+                    "technology_daily": {"topic": "technology"},
+                    "science_daily": {"topic": "science"},
+                },
+                "article_ingestor": {
+                    "checkpoint_dir": "checkpoints/article_ingestor",
+                    "parquet_dir": "checkpoints/parquet",
+                },
+                "article_normalizer": {
+                    "row_mappings": {
+                        "headline": {"sources": ["fields.headline"]}
+                    }
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_config = Settings.load_article_normalizer_config(configuration_root=root)
+
+        self.assertEqual(typed_config.profile_names, ["technology_daily", "science_daily"])
+        self.assertEqual(typed_config.checkpoint_dir, Path("checkpoints/article_ingestor"))
+        self.assertEqual(typed_config.parquet_dir, Path("checkpoints/parquet"))
+        self.assertIn("headline", typed_config.row_mappings)
+
+    def test_load_article_normalizer_config_raises_for_missing_row_mappings(self):
+        """load_article_normalizer_config: raises when row_mappings are absent or empty."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "article_normalizer": {},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
+    def test_load_article_normalizer_config_raises_for_invalid_profiles(self):
+        """load_article_normalizer_config: raises when profiles is not a mapping."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": "not a dict",
+                "article_ingestor": {},
+                "article_normalizer": {
+                    "row_mappings": {"headline": {"sources": ["fields.headline"]}}
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_normalizer_config(configuration_root=root)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
