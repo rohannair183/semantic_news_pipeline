@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from src.config.settings import ArticleNormalizerConfig, Settings
-from src.util.dates import (
+from src.utils.dates import (
     format_day_compact,
     format_day_iso,
     parse_checkpoint_timestamp,

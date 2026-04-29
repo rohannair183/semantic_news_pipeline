@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from src.config.settings import ArticleIngestorConfig, Settings
 from src.ingestion.guardian_client import GuardianClient
-from src.util.dates import utc_now_checkpoint_token
+from src.utils.dates import utc_now_checkpoint_token
 
 
 class ArticleIngestor:

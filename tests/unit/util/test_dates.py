@@ -5,7 +5,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from src.util.dates import (
+from src.utils.dates import (
     coerce_day,
     format_day_compact,
     format_day_iso,

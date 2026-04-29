@@ -13,7 +13,7 @@ from urllib.parse import quote
 import requests
 
 from src.config.settings import Settings
-from src.util.dates import coerce_day, format_day_iso, utc_today_date
+from src.utils.dates import coerce_day, format_day_iso, utc_today_date
 
 
 @dataclass(frozen=True)
