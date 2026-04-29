@@ -276,6 +276,21 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     Settings.load_article_ingestor_config(configuration_root=root)
 
+    def test_load_article_ingestor_config_raises_for_invalid_save_local_checkpoint(self):
+        """load_article_ingestor_config: raises when save_local_checkpoint is not boolean."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {"save_local_checkpoint": "yes"},
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_article_ingestor_config(configuration_root=root)
+
     def test_load_article_normalizer_config_returns_typed_config(self):
         """load_article_normalizer_config: returns validated typed normalizer settings."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -339,6 +354,81 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
             ):
                 with self.assertRaises(ValueError):
                     Settings.load_article_normalizer_config(configuration_root=root)
+
+
+class TestSettingsLoadRequiredSection(unittest.TestCase):
+    """This class tests _load_required_section."""
+
+    def test_load_required_section_raises_for_missing_mapping(self):
+        """_load_required_section: raises when the section is missing or not a mapping."""
+        with self.assertRaises(ValueError):
+            Settings._load_required_section(  # pylint: disable=protected-access
+                {},
+                "article_normalizer",
+            )
+
+
+class TestSettingsLoadOptionalSection(unittest.TestCase):
+    """This class tests _load_optional_section."""
+
+    def test_load_optional_section_returns_empty_dict_for_missing_value(self):
+        """_load_optional_section: returns empty dict when the section is absent."""
+        self.assertEqual(
+            Settings._load_optional_section(  # pylint: disable=protected-access
+                {},
+                "article_ingestor",
+            ),
+            {},
+        )
+
+    def test_load_optional_section_raises_for_non_mapping_value(self):
+        """_load_optional_section: raises when the section value is not a mapping."""
+        with self.assertRaises(ValueError):
+            Settings._load_optional_section(  # pylint: disable=protected-access
+                {"article_ingestor": []},
+                "article_ingestor",
+            )
+
+
+class TestSettingsLoadSelectedProfiles(unittest.TestCase):
+    """This class tests _load_selected_profiles."""
+
+    def test_load_selected_profiles_raises_for_empty_list(self):
+        """_load_selected_profiles: raises when profiles_to_run is an empty list."""
+        with self.assertRaises(ValueError):
+            Settings._load_selected_profiles(  # pylint: disable=protected-access
+                [],
+                ["technology_daily"],
+            )
+
+    def test_load_selected_profiles_raises_for_unknown_profiles(self):
+        """_load_selected_profiles: raises when profiles_to_run includes unknown values."""
+        with self.assertRaises(ValueError):
+            Settings._load_selected_profiles(  # pylint: disable=protected-access
+                ["science_daily"],
+                ["technology_daily"],
+            )
+
+
+class TestSettingsLoadOptionalPositiveInt(unittest.TestCase):
+    """This class tests _load_optional_positive_int."""
+
+    def test_load_optional_positive_int_returns_none_for_missing_value(self):
+        """_load_optional_positive_int: returns None when the value is missing."""
+        self.assertIsNone(
+            Settings._load_optional_positive_int(  # pylint: disable=protected-access
+                None,
+                "article_ingestor.limit_per_profile",
+            )
+        )
+
+    def test_load_optional_positive_int_raises_for_non_integer(self):
+        """_load_optional_positive_int: raises when the value is not an integer."""
+        with self.assertRaises(ValueError):
+            Settings._load_optional_positive_int(  # pylint: disable=protected-access
+                "not-an-int",
+                "article_ingestor.limit_per_profile",
+            )
 
 
 if __name__ == "__main__":  # pragma: no cover

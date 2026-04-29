@@ -406,6 +406,17 @@ class TestArticleNormalizerFindLatest(unittest.TestCase):
                 self.assertIn("tech_daily", latest)
 
 
+class TestArticleNormalizerEnsureDay(unittest.TestCase):
+    """This class tests _ensure_day."""
+
+    def test_ensure_day_raises_for_datetime_input(self):
+        """_ensure_day: raises when the caller passes a datetime instead of a date."""
+        with self.assertRaises(TypeError):
+            ArticleNormalizer._ensure_day(  # pylint: disable=protected-access
+                datetime(2026, 4, 28, 10, 0)
+            )
+
+
 class TestArticleNormalizerNormalizeCheckpoint(unittest.TestCase):
     """This class tests normalize_checkpoint."""
 

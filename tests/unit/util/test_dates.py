@@ -19,7 +19,7 @@ from src.utils.dates import (
 class TestUTCTodayDate(unittest.TestCase):
     """This class tests utc_today_date."""
 
-    @patch("src.util.dates.datetime")
+    @patch("src.utils.dates.datetime")
     def test_utc_today_date_returns_utc_day(self, mock_datetime):
         """utc_today_date: returns today's date in UTC."""
         mock_now = Mock()
@@ -33,7 +33,7 @@ class TestUTCTodayDate(unittest.TestCase):
 class TestUTCNowCheckpointToken(unittest.TestCase):
     """This class tests utc_now_checkpoint_token."""
 
-    @patch("src.util.dates.datetime")
+    @patch("src.utils.dates.datetime")
     def test_utc_now_checkpoint_token_formats_timestamp(self, mock_datetime):
         """utc_now_checkpoint_token: returns checkpoint-formatted UTC timestamp."""
         mock_now = Mock()
@@ -50,6 +50,10 @@ class TestCoerceDay(unittest.TestCase):
     def test_coerce_day_supports_date_datetime_and_strings(self):
         """coerce_day: normalizes supported inputs to a native date."""
         self.assertEqual(coerce_day(date(2026, 4, 29)), date(2026, 4, 29))
+        self.assertEqual(
+            coerce_day(datetime(2026, 4, 29, 5, 0)),
+            date(2026, 4, 29),
+        )
         self.assertEqual(
             coerce_day(datetime(2026, 4, 29, 5, 0, tzinfo=timezone.utc)),
             date(2026, 4, 29),
