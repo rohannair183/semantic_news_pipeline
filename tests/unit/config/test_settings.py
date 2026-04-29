@@ -1005,6 +1005,60 @@ class TestSettingsLoadPreChunkPreprocessorConfig(unittest.TestCase):
             {"old_name": "new_name"},
         )
 
+    def test_load_pre_chunk_preprocessor_config_supports_filter_min_numeric(self):
+        """load_pre_chunk_preprocessor_config: parses filter_min_numeric operation arguments."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [
+                        {
+                            "name": "filter_min_numeric",
+                            "args": {"column": "wordcount", "min_value": 500},
+                        }
+                    ],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                typed_config = Settings.load_pre_chunk_preprocessor_config(
+                    configuration_root=root
+                )
+
+        self.assertEqual(
+            typed_config.operations[0].name,
+            PreChunkOperation.FILTER_MIN_NUMERIC,
+        )
+        self.assertEqual(typed_config.operations[0].args["column"], "wordcount")
+        self.assertEqual(typed_config.operations[0].args["min_value"], 500.0)
+
+    def test_load_pre_chunk_preprocessor_config_rejects_non_numeric_min_value(self):
+        """load_pre_chunk_preprocessor_config: raises when filter min_value is not numeric."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            raw_config = {
+                "profiles": {"technology_daily": {"topic": "technology"}},
+                "article_ingestor": {},
+                "pre_chunk_preprocessor": {
+                    "operations": [
+                        {
+                            "name": "filter_min_numeric",
+                            "args": {"column": "wordcount", "min_value": "not-a-number"},
+                        }
+                    ],
+                },
+            }
+            with patch(
+                "src.config.settings.Settings.load_ingestion_config_from_root",
+                return_value=raw_config,
+            ):
+                with self.assertRaises(ValueError):
+                    Settings.load_pre_chunk_preprocessor_config(configuration_root=root)
+
     def test_load_pre_chunk_preprocessor_config_raises_for_non_mapping_args(self):
         """load_pre_chunk_preprocessor_config: raises when operation args are not a mapping."""
         with tempfile.TemporaryDirectory() as tmpdir:

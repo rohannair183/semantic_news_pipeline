@@ -2,17 +2,15 @@
 pre_chunk_preprocessor:
   output_dir: checkpoints/pre_chunk
   operations:
-    - name: drop_columns
-      args:
-        columns:
-          - thumbnail
-          - trail_text
     - name: trim_whitespace_columns
       args:
         columns:
-          - web_title
           - headline
           - body_text
+    - name: filter_min_numeric
+      args:
+        column: wordcount
+        min_value: 500
     - name: drop_empty_rows
       args:
         required_columns:
@@ -21,3 +19,19 @@ pre_chunk_preprocessor:
       args:
         columns:
           - body_text
+    - name: drop_columns
+      args:
+        columns:
+          - thumbnail
+          - trail_text
+          - profile
+          - api_id
+          - web_title
+          - byline
+          - section
+          - published_at
+          - first_publication_date
+          - url
+          - pillar
+          - last_modified
+          - wordcount

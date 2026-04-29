@@ -17,17 +17,31 @@ class PreChunkPreprocessor:
     """Preprocess normalized parquet outputs into chunk-ready parquet files."""
 
     def __init__(self, configuration_root: Path | None = None):
-        """Initialize the preprocessor from typed YAML settings."""
+        """Initialize the preprocessor from typed YAML settings.
+
+        Parameters:
+            configuration_root: Optional configuration root used to load
+                `configuration/ingestion/*.yaml` settings.
+        """
         self._config = Settings.load_pre_chunk_preprocessor_config(
             configuration_root=configuration_root
         )
 
     @property
     def profile_names(self) -> list[str]:
-        """Return configured profile names."""
+        """Return configured profile names.
+
+        Returns:
+            Ordered profile names loaded from pre-chunk settings.
+        """
         return list(self._config.profile_names)
 
     def _list_input_files(self) -> list[Path]:
+        """List day-based parquet inputs available for preprocessing.
+
+        Returns:
+            Sorted parquet file paths from the configured input directory.
+        """
         parquet_files = [
             path for path in self._config.input_dir.glob("*.parquet") if path.is_file()
         ]
@@ -35,18 +49,39 @@ class PreChunkPreprocessor:
 
     @staticmethod
     def _parse_day_from_filename(path: Path) -> str | None:
-        """Parse yyyy-mm-dd day token from a parquet filename stem."""
+        """Parse yyyy-mm-dd day token from a parquet filename stem.
+
+        Parameters:
+            path: Input parquet path whose stem is expected to be `YYYY-MM-DD`.
+
+        Returns:
+            ISO date string (`YYYY-MM-DD`) when parseable, otherwise None.
+        """
         try:
             return date.fromisoformat(path.stem).isoformat()
         except ValueError:
             return None
 
     def _combined_output_path(self, day_token: str) -> Path:
-        """Build output path for a day-level pre-chunk parquet."""
+        """Build output path for a day-level pre-chunk parquet.
+
+        Parameters:
+            day_token: ISO day token (for example `2026-04-29`).
+
+        Returns:
+            Output parquet path under the configured pre-chunk output directory.
+        """
         return self._config.output_dir / f"{day_token}.parquet"
 
     @staticmethod
     def _ensure_columns_exist(df: pd.DataFrame, columns: list[str], operation: str) -> None:
+        """Validate that required columns exist for an operation.
+
+        Parameters:
+            df: DataFrame to validate.
+            columns: Required column names.
+            operation: Operation name used in validation error messages.
+        """
         missing_columns = [column for column in columns if column not in df.columns]
         if missing_columns:
             missing_values = ", ".join(missing_columns)
@@ -56,22 +91,56 @@ class PreChunkPreprocessor:
 
     @staticmethod
     def _is_present(value: Any) -> bool:
+        """Return whether a value should be treated as present.
+
+        Parameters:
+            value: Value to evaluate.
+
+        Returns:
+            True when value is non-null and, for strings, non-blank.
+        """
         if value is None:
             return False
         if isinstance(value, str):
             return bool(value.strip())
         return True
 
+    @staticmethod
+    def _is_numeric_at_least(value: Any, min_value: float) -> bool:
+        """Return whether a value can be parsed as numeric and meets a minimum.
+
+        Parameters:
+            value: Raw value to evaluate.
+            min_value: Inclusive numeric threshold.
+
+        Returns:
+            True when `value` can be converted to float and is >= `min_value`.
+        """
+        try:
+            return float(value) >= min_value
+        except (TypeError, ValueError):
+            return False
+
     def _apply_operation(
         self,
         df: pd.DataFrame,
         operation: PreChunkOperationConfig,
     ) -> pd.DataFrame:
+        """Dispatch and apply one configured pre-chunk operation.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Typed operation config with operation enum + args.
+
+        Returns:
+            DataFrame transformed by the selected operation handler.
+        """
         operation_handlers = {
             PreChunkOperation.DROP_COLUMNS: self._drop_columns,
             PreChunkOperation.RENAME_COLUMNS: self._rename_columns,
             PreChunkOperation.TRIM_WHITESPACE_COLUMNS: self._trim_whitespace_columns,
             PreChunkOperation.DROP_EMPTY_ROWS: self._drop_empty_rows,
+            PreChunkOperation.FILTER_MIN_NUMERIC: self._filter_min_numeric,
             PreChunkOperation.COALESCE_COLUMNS: self._coalesce_columns,
             PreChunkOperation.NORMALIZE_TEXT_COLUMNS: self._normalize_text_columns,
         }
@@ -86,6 +155,15 @@ class PreChunkPreprocessor:
         df: pd.DataFrame,
         operation: PreChunkOperationConfig,
     ) -> pd.DataFrame:
+        """Drop configured columns when they exist.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Operation config containing `args.columns`.
+
+        Returns:
+            DataFrame with existing requested columns removed.
+        """
         columns = list(operation.args["columns"])
         existing_columns = [column for column in columns if column in df.columns]
         if not existing_columns:
@@ -97,6 +175,15 @@ class PreChunkPreprocessor:
         df: pd.DataFrame,
         operation: PreChunkOperationConfig,
     ) -> pd.DataFrame:
+        """Rename columns according to configured mapping.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Operation config containing `args.mapping`.
+
+        Returns:
+            DataFrame with renamed columns.
+        """
         mapping = dict(operation.args["mapping"])
         if not mapping:
             return df
@@ -108,6 +195,15 @@ class PreChunkPreprocessor:
         df: pd.DataFrame,
         operation: PreChunkOperationConfig,
     ) -> pd.DataFrame:
+        """Trim leading and trailing whitespace from configured text columns.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Operation config containing `args.columns`.
+
+        Returns:
+            DataFrame with trimmed string values.
+        """
         columns = list(operation.args["columns"])
         self._ensure_columns_exist(df, columns, operation.name.value)
         for column in columns:
@@ -121,6 +217,16 @@ class PreChunkPreprocessor:
         df: pd.DataFrame,
         operation: PreChunkOperationConfig,
     ) -> pd.DataFrame:
+        """Drop rows with blank or missing values in required columns.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Operation config containing `args.required_columns`.
+
+        Returns:
+            DataFrame filtered to rows that contain present values in each
+            required column.
+        """
         required_columns = list(operation.args["required_columns"])
         self._ensure_columns_exist(df, required_columns, operation.name.value)
         filtered_df = df.copy()
@@ -134,6 +240,16 @@ class PreChunkPreprocessor:
         df: pd.DataFrame,
         operation: PreChunkOperationConfig,
     ) -> pd.DataFrame:
+        """Coalesce multiple source columns into a target column.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Operation config containing `args.target` and
+                `args.sources`.
+
+        Returns:
+            DataFrame with target values filled from first non-null source.
+        """
         target = str(operation.args["target"])
         sources = list(operation.args["sources"])
         self._ensure_columns_exist(df, sources, operation.name.value)
@@ -145,11 +261,45 @@ class PreChunkPreprocessor:
         df[target] = existing_target.where(existing_target.notna(), coalesced)
         return df
 
+    def _filter_min_numeric(
+        self,
+        df: pd.DataFrame,
+        operation: PreChunkOperationConfig,
+    ) -> pd.DataFrame:
+        """Filter rows by an inclusive minimum numeric threshold.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Operation config containing `args.column` and
+                `args.min_value`.
+
+        Returns:
+            DataFrame containing only rows where column value is numeric and
+            greater than or equal to the threshold.
+        """
+        column = str(operation.args["column"])
+        min_value = float(operation.args["min_value"])
+        self._ensure_columns_exist(df, [column], operation.name.value)
+        valid_rows = df[column].apply(
+            lambda value: self._is_numeric_at_least(value=value, min_value=min_value)
+        )
+        return df.loc[valid_rows].reset_index(drop=True)
+
     def _normalize_text_columns(
         self,
         df: pd.DataFrame,
         operation: PreChunkOperationConfig,
     ) -> pd.DataFrame:
+        """Normalize whitespace inside configured text columns.
+
+        Parameters:
+            df: Input DataFrame.
+            operation: Operation config containing `args.columns`.
+
+        Returns:
+            DataFrame where runs of whitespace are collapsed to single spaces
+            and trimmed.
+        """
         columns = list(operation.args["columns"])
         self._ensure_columns_exist(df, columns, operation.name.value)
         whitespace_pattern = re.compile(r"\s+")
@@ -162,13 +312,25 @@ class PreChunkPreprocessor:
         return df
 
     def _apply_operations(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Apply all configured operations in declared order.
+
+        Parameters:
+            df: Input DataFrame to transform.
+
+        Returns:
+            DataFrame after all configured pre-chunk operations are applied.
+        """
         transformed_df = df.copy()
         for operation in self._config.operations:
             transformed_df = self._apply_operation(transformed_df, operation)
         return transformed_df
 
     def preprocess_to_parquet(self) -> dict[str, str]:
-        """Apply operations and write combined day-level parquet outputs."""
+        """Apply operations and write day-level pre-chunk parquet outputs.
+
+        Returns:
+            Mapping of ISO day token to written parquet path.
+        """
         transformed_by_day: dict[str, list[pd.DataFrame]] = {}
         for source_path in self._list_input_files():
             day_token = self._parse_day_from_filename(source_path)

@@ -130,6 +130,35 @@ class TestPreChunkPreprocessorHelpers(unittest.TestCase):
 
         self.assertEqual(output_df.iloc[0]["title"], "Fallback")
 
+    def test_apply_operation_filters_rows_below_numeric_threshold(self):
+        """_apply_operation: drops rows whose numeric values are below min_value."""
+        preprocessor = _build_preprocessor_with_config(
+            PreChunkPreprocessorConfig(
+                profile_names=["technology_daily"],
+                input_dir=Path("input"),
+                output_dir=Path("output"),
+                operations=[],
+            )
+        )
+        input_df = pd.DataFrame(
+            [
+                {"api_id": "a", "wordcount": "499"},
+                {"api_id": "b", "wordcount": "500"},
+                {"api_id": "c", "wordcount": "900"},
+                {"api_id": "d", "wordcount": "invalid"},
+            ]
+        )
+
+        output_df = preprocessor._apply_operation(  # pylint: disable=protected-access
+            input_df,
+            _build_operation(
+                PreChunkOperation.FILTER_MIN_NUMERIC,
+                {"column": "wordcount", "min_value": 500},
+            ),
+        )
+
+        self.assertEqual(list(output_df["api_id"]), ["b", "c"])
+
     def test_apply_operation_raises_for_unsupported_operation(self):
         """_apply_operation: raises when given an unsupported operation enum-like value."""
         preprocessor = _build_preprocessor_with_config(

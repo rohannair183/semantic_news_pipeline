@@ -10,5 +10,6 @@ class PreChunkOperation(BaseEnum):
     RENAME_COLUMNS = "rename_columns"
     TRIM_WHITESPACE_COLUMNS = "trim_whitespace_columns"
     DROP_EMPTY_ROWS = "drop_empty_rows"
+    FILTER_MIN_NUMERIC = "filter_min_numeric"
     COALESCE_COLUMNS = "coalesce_columns"
     NORMALIZE_TEXT_COLUMNS = "normalize_text_columns"

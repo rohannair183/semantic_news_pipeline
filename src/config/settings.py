@@ -822,6 +822,15 @@ class Settings:
                 resolved_args.get("required_columns"),
                 field_name=f"{field_prefix}.args.required_columns",
             )
+        elif operation_name == PreChunkOperation.FILTER_MIN_NUMERIC:
+            resolved_args["column"] = cls._load_non_empty_string(
+                resolved_args.get("column"),
+                field_name=f"{field_prefix}.args.column",
+            )
+            resolved_args["min_value"] = cls._load_numeric_value(
+                resolved_args.get("min_value"),
+                field_name=f"{field_prefix}.args.min_value",
+            )
         elif operation_name == PreChunkOperation.COALESCE_COLUMNS:
             resolved_args["target"] = cls._load_non_empty_string(
                 resolved_args.get("target"),
@@ -843,6 +852,15 @@ class Settings:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"Ingestion config field '{field_name}' must be a non-empty string")
         return value
+
+    @staticmethod
+    def _load_numeric_value(value: Any, field_name: str) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Ingestion config field '{field_name}' must be a numeric value"
+            ) from exc
 
     @classmethod
     def _load_non_empty_string_list(cls, value: Any, field_name: str) -> list[str]:
