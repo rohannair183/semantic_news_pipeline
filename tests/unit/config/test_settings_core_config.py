@@ -144,13 +144,14 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
                         ]
                     }
                 },
+                {"chunking": {"input_dir": "checkpoints/pre_chunk"}},
                 {"article_ingestor": {"limit_per_profile": 7}},
             ]
 
             values = Settings.load_ingestion_config()
 
         parser_cls.assert_called_once_with()
-        self.assertEqual(parser_instance.parse.call_count, 6)
+        self.assertEqual(parser_instance.parse.call_count, 7)
         self.assertEqual(
             parser_instance.parse.call_args_list[0].kwargs,
             {"config_type": YAMLConfigType.INGESTION, "filename": "base.yaml"},
@@ -175,12 +176,13 @@ class TestSettingsLoadIngestionConfig(unittest.TestCase):
                     {},
                     {},
                     {},
+                    {},
                 ]
 
                 values = Settings.load_ingestion_config_from_root(configuration_root=root)
 
         parser_cls.assert_called_once_with(configuration_root=root)
-        self.assertEqual(parser_instance.parse.call_count, 6)
+        self.assertEqual(parser_instance.parse.call_count, 7)
         self.assertEqual(values, {"base_url": "https://root.test"})
 
     def test_load_article_ingestor_config_returns_typed_config(self):

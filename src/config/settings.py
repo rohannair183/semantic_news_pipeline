@@ -121,6 +121,11 @@ class Settings:
                 filename=filename,
             )
             merged_config = cls._deep_merge_dicts(merged_config, section_values)
+        chunking_values = parser.parse(
+            config_type=YAMLConfigType.CHUNKING,
+            filename="chunking.yaml",
+        )
+        merged_config = cls._deep_merge_dicts(merged_config, chunking_values)
         legacy_values = parser.parse(
             config_type=YAMLConfigType.INGESTION,
             filename=cls._INGESTION_LEGACY_CONFIG_FILE,
@@ -299,30 +304,17 @@ class Settings:
         )
 
     @classmethod
-    def load_chunking_config(  # pylint: disable=too-many-locals
+    def load_chunking_config(
         cls,
         configuration_root: Optional[Path] = None,
     ) -> "ChunkingConfig":
-        """Load and validate typed semantic chunking configuration."""
+        """Load and validate typed chunking configuration with named profiles."""
         config_values = (
             cls.load_ingestion_config()
             if configuration_root is None
             else cls.load_ingestion_config_from_root(configuration_root)
         )
         profile_names = cls._load_profile_names(config_values)
-        parser = YAMLConfigParser(configuration_root=configuration_root)
-        chunking_path = cls._resolve_chunking_config_path(configuration_root)
-        standalone_chunking_values = parser.parse_path(chunking_path)
-
-        existing_chunking = config_values.get("chunking")
-        merged_chunking: Dict[str, Any] = {}
-        if isinstance(existing_chunking, dict):
-            merged_chunking = cls._deep_merge_dicts(merged_chunking, existing_chunking)
-        standalone_chunking_section = standalone_chunking_values.get("chunking")
-        if isinstance(standalone_chunking_section, dict):
-            merged_chunking = cls._deep_merge_dicts(merged_chunking, standalone_chunking_section)
-        config_values = dict(config_values)
-        config_values["chunking"] = merged_chunking
         chunking_section = cls._load_required_section(
             config_values,
             section_name="chunking",
@@ -333,12 +325,6 @@ class Settings:
         output_dir = Path(
             str(chunking_section.get("output_dir", "checkpoints/chunked_parquet"))
         )
-        raw_strategy = chunking_section.get("strategy", ChunkingStrategy.SEMANTIC_SENTENCE.value)
-        try:
-            strategy = ChunkingStrategy.from_value(str(raw_strategy))
-        except ValueError as exc:
-            raise ValueError(f"Ingestion config field 'chunking.strategy': {exc}") from exc
-
         text_columns = cls._load_non_empty_string_list(
             chunking_section.get("text_columns"),
             field_name="chunking.text_columns",
@@ -355,64 +341,107 @@ class Settings:
             chunking_section.get("passthrough_columns"),
             field_name="chunking.passthrough_columns",
         )
-        semantic_raw = chunking_section.get("semantic")
-        if not isinstance(semantic_raw, dict):
-            raise ValueError("Ingestion config must contain a 'chunking.semantic' mapping")
-        semantic = cls._load_semantic_chunking_params(semantic_raw)
+        chunking_profiles = cls._load_chunking_profiles(chunking_section.get("profiles"))
         return ChunkingConfig(
             profile_names=profile_names,
             input_dir=input_dir,
             output_dir=output_dir,
-            strategy=strategy,
             text_columns=text_columns,
             id_columns=id_columns,
             profile_columns=profile_columns,
             passthrough_columns=passthrough_columns,
-            semantic=semantic,
+            chunking_profiles=chunking_profiles,
         )
 
     @classmethod
-    def _load_semantic_chunking_params(cls, raw: Dict[str, Any]) -> "SemanticChunkingParams":
+    def _load_chunking_profiles(
+        cls,
+        raw_profiles: Any,
+    ) -> Dict[str, "ChunkingProfileConfig"]:
+        """Parse the chunking.profiles mapping into typed profile configs."""
+        if not isinstance(raw_profiles, dict) or not raw_profiles:
+            raise ValueError(
+                "Ingestion config must contain a non-empty 'chunking.profiles' mapping"
+            )
+        resolved: Dict[str, ChunkingProfileConfig] = {}
+        for raw_name, raw_profile in raw_profiles.items():
+            profile_name = str(raw_name)
+            field_prefix = f"chunking.profiles.{profile_name}"
+            if not isinstance(raw_profile, dict):
+                raise ValueError(
+                    f"Ingestion config field '{field_prefix}' must be a mapping"
+                )
+            raw_strategy = raw_profile.get(
+                "strategy",
+                ChunkingStrategy.SEMANTIC_SENTENCE.value,
+            )
+            try:
+                strategy = ChunkingStrategy.from_value(str(raw_strategy))
+            except ValueError as exc:
+                raise ValueError(
+                    f"Ingestion config field '{field_prefix}.strategy': {exc}"
+                ) from exc
+            semantic_raw = raw_profile.get("semantic")
+            if not isinstance(semantic_raw, dict):
+                raise ValueError(
+                    f"Ingestion config field '{field_prefix}.semantic' must be a mapping"
+                )
+            semantic = cls._load_semantic_chunking_params(
+                semantic_raw,
+                field_prefix=f"{field_prefix}.semantic",
+            )
+            resolved[profile_name] = ChunkingProfileConfig(
+                strategy=strategy,
+                semantic=semantic,
+            )
+        return resolved
+
+    @classmethod
+    def _load_semantic_chunking_params(
+        cls,
+        raw: Dict[str, Any],
+        field_prefix: str = "chunking.semantic",
+    ) -> "SemanticChunkingParams":
         """Parse semantic chunking numeric and splitter settings."""
-        prefix = "chunking.semantic"
         min_chars = cls._load_positive_int(
             raw.get("min_chars"),
-            field_name=f"{prefix}.min_chars",
+            field_name=f"{field_prefix}.min_chars",
         )
         max_chars = cls._load_positive_int(
             raw.get("max_chars"),
-            field_name=f"{prefix}.max_chars",
+            field_name=f"{field_prefix}.max_chars",
         )
         if max_chars < min_chars:
             raise ValueError(
-                f"Ingestion config field '{prefix}.max_chars' must be >= '{prefix}.min_chars'"
+                f"Ingestion config field '{field_prefix}.max_chars' must be >= "
+                f"'{field_prefix}.min_chars'"
             )
         overlap_raw = raw.get("overlap_chars", 0)
         try:
             overlap_chars = int(overlap_raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"Ingestion config field '{prefix}.overlap_chars' must be an integer"
+                f"Ingestion config field '{field_prefix}.overlap_chars' must be an integer"
             ) from exc
         if overlap_chars < 0:
             raise ValueError(
-                f"Ingestion config field '{prefix}.overlap_chars' must be >= 0"
+                f"Ingestion config field '{field_prefix}.overlap_chars' must be >= 0"
             )
         if overlap_chars >= max_chars:
             raise ValueError(
-                f"Ingestion config field '{prefix}.overlap_chars' must be < "
-                f"'{prefix}.max_chars'"
+                f"Ingestion config field '{field_prefix}.overlap_chars' must be < "
+                f"'{field_prefix}.max_chars'"
             )
         threshold_raw = raw.get("similarity_threshold", 0.35)
         try:
             similarity_threshold = float(threshold_raw)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                f"Ingestion config field '{prefix}.similarity_threshold' must be a number"
+                f"Ingestion config field '{field_prefix}.similarity_threshold' must be a number"
             ) from exc
         if not 0.0 <= similarity_threshold <= 1.0:
             raise ValueError(
-                f"Ingestion config field '{prefix}.similarity_threshold' must be in [0, 1]"
+                f"Ingestion config field '{field_prefix}.similarity_threshold' must be in [0, 1]"
             )
         splitter_raw = raw.get(
             "sentence_splitter",
@@ -422,7 +451,7 @@ class Settings:
             sentence_splitter = SentenceSplitterMode.from_value(str(splitter_raw))
         except ValueError as exc:
             raise ValueError(
-                f"Ingestion config field '{prefix}.sentence_splitter': {exc}"
+                f"Ingestion config field '{field_prefix}.sentence_splitter': {exc}"
             ) from exc
         return SemanticChunkingParams(
             min_chars=min_chars,
@@ -458,17 +487,6 @@ class Settings:
                 )
             resolved.append(str(item))
         return resolved
-
-
-    @staticmethod
-    def _resolve_chunking_config_path(configuration_root: Optional[Path]) -> Path:
-        """Resolve the standalone chunking YAML path."""
-        if configuration_root is None:
-            module_path = Path(__file__).resolve()
-            repository_root = module_path.parents[2]
-        else:
-            repository_root = configuration_root.parent
-        return repository_root / "configuration" / "chunking" / "chunking.yaml"
 
     @staticmethod
     def _load_required_section(config_values: Dict[str, Any], section_name: str) -> Dict[str, Any]:
@@ -1124,18 +1142,25 @@ class SemanticChunkingParams:
 
 
 @dataclass(frozen=True)
+class ChunkingProfileConfig:
+    """Typed per-profile chunking strategy and parameters."""
+
+    strategy: ChunkingStrategy
+    semantic: SemanticChunkingParams
+
+
+@dataclass(frozen=True)
 class ChunkingConfig:  # pylint: disable=too-many-instance-attributes
-    """Typed configuration for post-pre_chunk semantic chunking."""
+    """Typed configuration for post-pre_chunk chunking with named profiles."""
 
     profile_names: list[str]
     input_dir: Path
     output_dir: Path
-    strategy: ChunkingStrategy
     text_columns: list[str]
     id_columns: list[str]
     profile_columns: list[str]
     passthrough_columns: list[str]
-    semantic: SemanticChunkingParams
+    chunking_profiles: dict[str, ChunkingProfileConfig]
 
 
 @dataclass(frozen=True)

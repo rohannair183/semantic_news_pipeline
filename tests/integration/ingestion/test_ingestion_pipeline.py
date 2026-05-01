@@ -263,17 +263,21 @@ class IngestionPipelineIntegrationTestCase(unittest.TestCase):
             "chunking": {
                 "input_dir": str(self.parquet_dir.parent / "pre_chunk"),
                 "output_dir": str(self.parquet_dir.parent / "chunked_parquet"),
-                "strategy": "semantic_sentence",
                 "text_columns": ["body_text"],
                 "id_columns": ["api_id"],
                 "profile_columns": ["profile"],
                 "passthrough_columns": ["headline", "web_title"],
-                "semantic": {
-                    "min_chars": 5,
-                    "max_chars": 200,
-                    "overlap_chars": 0,
-                    "similarity_threshold": 0.25,
-                    "sentence_splitter": "simple_regex",
+                "profiles": {
+                    "default": {
+                        "strategy": "semantic_sentence",
+                        "semantic": {
+                            "min_chars": 5,
+                            "max_chars": 200,
+                            "overlap_chars": 0,
+                            "similarity_threshold": 0.25,
+                            "sentence_splitter": "simple_regex",
+                        },
+                    },
                 },
             },
         }
@@ -705,8 +709,17 @@ class TestPreChunkPreprocessorIntegration(IngestionPipelineIntegrationTestCase):
 class TestSemanticChunkerIntegration(IngestionPipelineIntegrationTestCase):
     """This class tests chunk_to_parquet."""
 
-    def test_chunk_to_parquet_writes_chunked_day_parquet(self) -> None:
-        """chunk_to_parquet: writes chunked parquet with stable columns."""
+    def _prepare_pipeline_for_chunking(self, run_timestamp: str) -> None:
+        """Run ingestion + normalization + pre-chunk preprocessing for chunking tests."""
+        article_ingestor = self._create_ingestor(run_timestamp=run_timestamp)
+        article_ingestor.run()
+        normalizer = self._create_normalizer()
+        normalizer.normalize_day_to_parquet(INGESTION_DAY)
+        preprocessor = self._create_preprocessor()
+        preprocessor.preprocess_to_parquet()
+
+    def test_chunk_to_parquet_writes_combined_per_profile_parquet(self) -> None:
+        """chunk_to_parquet: writes a single combined per-profile parquet for all input days."""
         self._set_transport(
             search_payloads={
                 ("chips", 1): _build_search_response([{"id": "technology/article-1"}]),
@@ -723,24 +736,51 @@ class TestSemanticChunkerIntegration(IngestionPipelineIntegrationTestCase):
                 ),
             },
         )
-        article_ingestor = self._create_ingestor(run_timestamp="20260428T180000Z")
-        article_ingestor.run()
-        normalizer = self._create_normalizer()
-        normalizer.normalize_day_to_parquet(INGESTION_DAY)
-        preprocessor = self._create_preprocessor()
-        preprocessor.preprocess_to_parquet()
+        self._prepare_pipeline_for_chunking("20260428T180000Z")
 
         chunker = SemanticChunker(configuration_root=self.configuration_root)
-        written = chunker.chunk_to_parquet()
-        self.assertEqual(set(written.keys()), {INGESTION_DAY.isoformat()})
-        chunk_path = Path(written[INGESTION_DAY.isoformat()])
+        written = chunker.chunk_to_parquet(profile="default")
+        self.assertEqual(set(written.keys()), {"default"})
+        chunk_path = Path(written["default"])
         self.assertTrue(chunk_path.is_file())
+        self.assertEqual(
+            chunk_path,
+            self.parquet_dir.parent / "chunked_parquet" / "default.parquet",
+        )
         chunk_df = pd.read_parquet(chunk_path)
         self.assertIn("chunk_text", chunk_df.columns)
         self.assertIn("source_day", chunk_df.columns)
         self.assertIn("chunk_index", chunk_df.columns)
         self.assertGreater(len(chunk_df), 0)
         self.assertEqual(chunk_df.iloc[0]["source_api_id"], "technology/article-1")
+
+    def test_chunk_to_parquet_rebuilds_on_repeated_runs(self) -> None:
+        """chunk_to_parquet: re-running rebuilds the same combined parquet (no skip state)."""
+        self._set_transport(
+            search_payloads={
+                ("chips", 1): _build_search_response([{"id": "technology/article-1"}]),
+                ("science", 1): _build_search_response([]),
+            },
+            detail_payloads={
+                "technology/article-1": _build_article(
+                    "technology/article-1",
+                    "  Technology Article 1  ",
+                    "technology_daily",
+                    metadata={
+                        "body_text": "First sentence here. Second sentence unrelated xyz.",
+                    },
+                ),
+            },
+        )
+        self._prepare_pipeline_for_chunking("20260428T180000Z")
+
+        chunker = SemanticChunker(configuration_root=self.configuration_root)
+        first = chunker.chunk_to_parquet(profile="default")
+        second = chunker.chunk_to_parquet(profile="default")
+        self.assertEqual(first, second)
+        self.assertEqual(set(first.keys()), {"default"})
+        chunk_df = pd.read_parquet(first["default"])
+        self.assertGreater(len(chunk_df), 0)
 
 
 if __name__ == "__main__":  # pragma: no cover

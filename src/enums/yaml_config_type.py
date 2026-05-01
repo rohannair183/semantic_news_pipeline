@@ -7,3 +7,4 @@ class YAMLConfigType(BaseEnum):
     """Top-level configuration groups available to YAML config parsing."""
 
     INGESTION = "ingestion"
+    CHUNKING = "chunking"

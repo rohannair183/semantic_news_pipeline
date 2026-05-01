@@ -1,10 +1,14 @@
-# Semantic chunking on pre_chunk day parquet (ISO stem YYYY-MM-DD.parquet).
+# Chunking on pre_chunk day parquet (ISO stem YYYY-MM-DD.parquet).
 # Input layout matches PreChunkPreprocessor output_dir; upstream ids may be
 # absent if pre_chunk drop_columns removed them - chunker emits nulls then.
+# Each call rebuilds a single combined parquet at
+# {output_dir}/{profile}.parquet covering every available input day.
+# Idempotency for embedding/DB writes is enforced downstream (e.g. via DB
+# upserts on a deterministic chunk primary key); the chunker does not
+# track previously chunked ids.
 chunking:
   input_dir: checkpoints/pre_chunk
   output_dir: checkpoints/chunked_parquet
-  strategy: semantic_sentence
   text_columns:
     - body_text
   id_columns:
@@ -13,9 +17,12 @@ chunking:
     - profile
   passthrough_columns:
     - headline
-  semantic:
-    min_chars: 200
-    max_chars: 2000
-    overlap_chars: 100
-    similarity_threshold: 0.35
-    sentence_splitter: simple_regex
+  profiles:
+    default:
+      strategy: semantic_sentence
+      semantic:
+        min_chars: 200
+        max_chars: 2000
+        overlap_chars: 100
+        similarity_threshold: 0.35
+        sentence_splitter: simple_regex

@@ -24,8 +24,6 @@ pre_chunk_preprocessor:
         columns:
           - thumbnail
           - trail_text
-          - profile
-          - api_id
           - web_title
           - byline
           - section
