@@ -17,6 +17,7 @@ import yaml
 
 from src.config.settings import Settings
 from src.ingestion.article_ingestor import ArticleIngestor
+from src.chunking.semantic_chunker import SemanticChunker
 from src.ingestion.article_normalizer import ArticleNormalizer
 from src.ingestion.prechunk_processing import PreChunkPreprocessor
 from tests.unit.ingestion.test_config_helpers import NORMALIZER_ROW_MAPPINGS
@@ -258,6 +259,22 @@ class IngestionPipelineIntegrationTestCase(unittest.TestCase):
                         "args": {"columns": ["body_text"]},
                     },
                 ],
+            },
+            "chunking": {
+                "input_dir": str(self.parquet_dir.parent / "pre_chunk"),
+                "output_dir": str(self.parquet_dir.parent / "chunked_parquet"),
+                "strategy": "semantic_sentence",
+                "text_columns": ["body_text"],
+                "id_columns": ["api_id"],
+                "profile_columns": ["profile"],
+                "passthrough_columns": ["headline", "web_title"],
+                "semantic": {
+                    "min_chars": 5,
+                    "max_chars": 200,
+                    "overlap_chars": 0,
+                    "similarity_threshold": 0.25,
+                    "sentence_splitter": "simple_regex",
+                },
             },
         }
         with ingestion_config_path.open("w", encoding="utf-8") as config_file:
@@ -683,6 +700,47 @@ class TestPreChunkPreprocessorIntegration(IngestionPipelineIntegrationTestCase):
         self.assertEqual(output_df.iloc[0]["body_text"], "Body text")
         self.assertNotIn("thumbnail", output_df.columns)
         self.assertNotIn("trail_text", output_df.columns)
+
+
+class TestSemanticChunkerIntegration(IngestionPipelineIntegrationTestCase):
+    """This class tests chunk_to_parquet."""
+
+    def test_chunk_to_parquet_writes_chunked_day_parquet(self) -> None:
+        """chunk_to_parquet: writes chunked parquet with stable columns."""
+        self._set_transport(
+            search_payloads={
+                ("chips", 1): _build_search_response([{"id": "technology/article-1"}]),
+                ("science", 1): _build_search_response([]),
+            },
+            detail_payloads={
+                "technology/article-1": _build_article(
+                    "technology/article-1",
+                    "  Technology Article 1  ",
+                    "technology_daily",
+                    metadata={
+                        "body_text": "First sentence here. Second sentence unrelated xyz.",
+                    },
+                ),
+            },
+        )
+        article_ingestor = self._create_ingestor(run_timestamp="20260428T180000Z")
+        article_ingestor.run()
+        normalizer = self._create_normalizer()
+        normalizer.normalize_day_to_parquet(INGESTION_DAY)
+        preprocessor = self._create_preprocessor()
+        preprocessor.preprocess_to_parquet()
+
+        chunker = SemanticChunker(configuration_root=self.configuration_root)
+        written = chunker.chunk_to_parquet()
+        self.assertEqual(set(written.keys()), {INGESTION_DAY.isoformat()})
+        chunk_path = Path(written[INGESTION_DAY.isoformat()])
+        self.assertTrue(chunk_path.is_file())
+        chunk_df = pd.read_parquet(chunk_path)
+        self.assertIn("chunk_text", chunk_df.columns)
+        self.assertIn("source_day", chunk_df.columns)
+        self.assertIn("chunk_index", chunk_df.columns)
+        self.assertGreater(len(chunk_df), 0)
+        self.assertEqual(chunk_df.iloc[0]["source_api_id"], "technology/article-1")
 
 
 if __name__ == "__main__":  # pragma: no cover

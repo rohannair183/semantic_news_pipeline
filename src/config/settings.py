@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """Application settings helpers."""
 
 from __future__ import annotations
@@ -14,7 +15,9 @@ from src.enums.article_row_transform import ArticleRowTransform
 from src.enums.guardian_order_by import GuardianOrderBy
 from src.enums.ingestion_timeframe_mode import IngestionTimeframeMode
 from src.enums.ingestion_timeframe_relative import IngestionTimeframeRelative
+from src.enums.chunking_strategy import ChunkingStrategy
 from src.enums.pre_chunk_operation import PreChunkOperation
+from src.enums.sentence_splitter_mode import SentenceSplitterMode
 from src.enums.yaml_config_type import YAMLConfigType
 from src.utils.dates import coerce_day, utc_today_date
 
@@ -294,6 +297,178 @@ class Settings:
             output_dir=output_dir,
             operations=operations,
         )
+
+    @classmethod
+    def load_chunking_config(  # pylint: disable=too-many-locals
+        cls,
+        configuration_root: Optional[Path] = None,
+    ) -> "ChunkingConfig":
+        """Load and validate typed semantic chunking configuration."""
+        config_values = (
+            cls.load_ingestion_config()
+            if configuration_root is None
+            else cls.load_ingestion_config_from_root(configuration_root)
+        )
+        profile_names = cls._load_profile_names(config_values)
+        parser = YAMLConfigParser(configuration_root=configuration_root)
+        chunking_path = cls._resolve_chunking_config_path(configuration_root)
+        standalone_chunking_values = parser.parse_path(chunking_path)
+
+        existing_chunking = config_values.get("chunking")
+        merged_chunking: Dict[str, Any] = {}
+        if isinstance(existing_chunking, dict):
+            merged_chunking = cls._deep_merge_dicts(merged_chunking, existing_chunking)
+        standalone_chunking_section = standalone_chunking_values.get("chunking")
+        if isinstance(standalone_chunking_section, dict):
+            merged_chunking = cls._deep_merge_dicts(merged_chunking, standalone_chunking_section)
+        config_values = dict(config_values)
+        config_values["chunking"] = merged_chunking
+        chunking_section = cls._load_required_section(
+            config_values,
+            section_name="chunking",
+        )
+        input_dir = Path(
+            str(chunking_section.get("input_dir", "checkpoints/pre_chunk"))
+        )
+        output_dir = Path(
+            str(chunking_section.get("output_dir", "checkpoints/chunked_parquet"))
+        )
+        raw_strategy = chunking_section.get("strategy", ChunkingStrategy.SEMANTIC_SENTENCE.value)
+        try:
+            strategy = ChunkingStrategy.from_value(str(raw_strategy))
+        except ValueError as exc:
+            raise ValueError(f"Ingestion config field 'chunking.strategy': {exc}") from exc
+
+        text_columns = cls._load_non_empty_string_list(
+            chunking_section.get("text_columns"),
+            field_name="chunking.text_columns",
+        )
+        id_columns = cls._load_optional_string_list(
+            chunking_section.get("id_columns"),
+            field_name="chunking.id_columns",
+        )
+        profile_columns = cls._load_optional_string_list(
+            chunking_section.get("profile_columns"),
+            field_name="chunking.profile_columns",
+        )
+        passthrough_columns = cls._load_optional_string_list(
+            chunking_section.get("passthrough_columns"),
+            field_name="chunking.passthrough_columns",
+        )
+        semantic_raw = chunking_section.get("semantic")
+        if not isinstance(semantic_raw, dict):
+            raise ValueError("Ingestion config must contain a 'chunking.semantic' mapping")
+        semantic = cls._load_semantic_chunking_params(semantic_raw)
+        return ChunkingConfig(
+            profile_names=profile_names,
+            input_dir=input_dir,
+            output_dir=output_dir,
+            strategy=strategy,
+            text_columns=text_columns,
+            id_columns=id_columns,
+            profile_columns=profile_columns,
+            passthrough_columns=passthrough_columns,
+            semantic=semantic,
+        )
+
+    @classmethod
+    def _load_semantic_chunking_params(cls, raw: Dict[str, Any]) -> "SemanticChunkingParams":
+        """Parse semantic chunking numeric and splitter settings."""
+        prefix = "chunking.semantic"
+        min_chars = cls._load_positive_int(
+            raw.get("min_chars"),
+            field_name=f"{prefix}.min_chars",
+        )
+        max_chars = cls._load_positive_int(
+            raw.get("max_chars"),
+            field_name=f"{prefix}.max_chars",
+        )
+        if max_chars < min_chars:
+            raise ValueError(
+                f"Ingestion config field '{prefix}.max_chars' must be >= '{prefix}.min_chars'"
+            )
+        overlap_raw = raw.get("overlap_chars", 0)
+        try:
+            overlap_chars = int(overlap_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Ingestion config field '{prefix}.overlap_chars' must be an integer"
+            ) from exc
+        if overlap_chars < 0:
+            raise ValueError(
+                f"Ingestion config field '{prefix}.overlap_chars' must be >= 0"
+            )
+        if overlap_chars >= max_chars:
+            raise ValueError(
+                f"Ingestion config field '{prefix}.overlap_chars' must be < "
+                f"'{prefix}.max_chars'"
+            )
+        threshold_raw = raw.get("similarity_threshold", 0.35)
+        try:
+            similarity_threshold = float(threshold_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Ingestion config field '{prefix}.similarity_threshold' must be a number"
+            ) from exc
+        if not 0.0 <= similarity_threshold <= 1.0:
+            raise ValueError(
+                f"Ingestion config field '{prefix}.similarity_threshold' must be in [0, 1]"
+            )
+        splitter_raw = raw.get(
+            "sentence_splitter",
+            SentenceSplitterMode.SIMPLE_REGEX.value,
+        )
+        try:
+            sentence_splitter = SentenceSplitterMode.from_value(str(splitter_raw))
+        except ValueError as exc:
+            raise ValueError(
+                f"Ingestion config field '{prefix}.sentence_splitter': {exc}"
+            ) from exc
+        return SemanticChunkingParams(
+            min_chars=min_chars,
+            max_chars=max_chars,
+            overlap_chars=overlap_chars,
+            similarity_threshold=similarity_threshold,
+            sentence_splitter=sentence_splitter,
+        )
+
+    @classmethod
+    def _load_positive_int(cls, value: Any, field_name: str) -> int:
+        try:
+            resolved = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Ingestion config field '{field_name}' must be a positive integer"
+            ) from exc
+        if resolved < 1:
+            raise ValueError(f"Ingestion config field '{field_name}' must be >= 1")
+        return resolved
+
+    @classmethod
+    def _load_optional_string_list(cls, value: Any, field_name: str) -> list[str]:
+        if value is None:
+            return []
+        if not isinstance(value, list):
+            raise ValueError(f"Ingestion config field '{field_name}' must be a list")
+        resolved: list[str] = []
+        for index, item in enumerate(value):
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError(
+                    f"Ingestion config field '{field_name}[{index}]' must be a non-empty string"
+                )
+            resolved.append(str(item))
+        return resolved
+
+
+    @staticmethod
+    def _resolve_chunking_config_path(configuration_root: Optional[Path]) -> Path:
+        """Resolve the standalone chunking YAML path."""
+        if configuration_root is None:
+            module_path = Path(__file__).resolve()
+            repository_root = module_path.parents[2]
+        else:
+            repository_root = configuration_root.parent
+        return repository_root / "configuration" / "chunking" / "chunking.yaml"
 
     @staticmethod
     def _load_required_section(config_values: Dict[str, Any], section_name: str) -> Dict[str, Any]:
@@ -935,6 +1110,32 @@ class PreChunkPreprocessorConfig:
     input_dir: Path
     output_dir: Path
     operations: list[PreChunkOperationConfig]
+
+
+@dataclass(frozen=True)
+class SemanticChunkingParams:
+    """YAML-driven parameters for semantic sentence chunking."""
+
+    min_chars: int
+    max_chars: int
+    overlap_chars: int
+    similarity_threshold: float
+    sentence_splitter: SentenceSplitterMode
+
+
+@dataclass(frozen=True)
+class ChunkingConfig:  # pylint: disable=too-many-instance-attributes
+    """Typed configuration for post-pre_chunk semantic chunking."""
+
+    profile_names: list[str]
+    input_dir: Path
+    output_dir: Path
+    strategy: ChunkingStrategy
+    text_columns: list[str]
+    id_columns: list[str]
+    profile_columns: list[str]
+    passthrough_columns: list[str]
+    semantic: SemanticChunkingParams
 
 
 @dataclass(frozen=True)
