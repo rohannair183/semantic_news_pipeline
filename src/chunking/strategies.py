@@ -1,11 +1,10 @@
-"""Chunking strategy registry and handlers used by SemanticChunker."""
+"""Chunking strategy registry and handlers used by Chunker."""
 
 from __future__ import annotations
 
-from typing import Dict, List, Protocol, Tuple
+from typing import Any, Dict, List, Protocol, Tuple
 
-from src.chunking.semantic_split import semantic_sentence_chunks
-from src.config.settings import SemanticChunkingParams
+from src.chunking.semantic_chunker import SemanticChunker
 from src.enums.chunking_strategy import ChunkingStrategy
 
 
@@ -15,25 +14,14 @@ class ChunkingStrategyHandler(Protocol):  # pylint: disable=too-few-public-metho
     def chunk(
         self,
         full_text: str,
-        params: SemanticChunkingParams,
+        params: Dict[str, Any],
     ) -> List[Tuple[str, int, int]]:
         """Return chunk spans (text, start_char, end_char_exclusive) for ``full_text``."""
-
-
-class SemanticSentenceHandler:  # pylint: disable=too-few-public-methods
-    """Handler that delegates to semantic_sentence_chunks."""
-
-    def chunk(
-        self,
-        full_text: str,
-        params: SemanticChunkingParams,
-    ) -> List[Tuple[str, int, int]]:
-        """Run semantic sentence chunking with the supplied params."""
-        return semantic_sentence_chunks(full_text, params)
+        ...
 
 
 STRATEGY_HANDLERS: Dict[ChunkingStrategy, ChunkingStrategyHandler] = {
-    ChunkingStrategy.SEMANTIC_SENTENCE: SemanticSentenceHandler(),
+    ChunkingStrategy.SEMANTIC_SENTENCE: SemanticChunker(),
 }
 
 

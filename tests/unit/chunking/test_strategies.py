@@ -3,44 +3,42 @@
 import unittest
 from unittest.mock import patch
 
+from src.chunking.semantic_chunker import SemanticChunker
 from src.chunking.strategies import (
     STRATEGY_HANDLERS,
-    SemanticSentenceHandler,
     resolve_handler,
 )
-from src.config.settings import SemanticChunkingParams
 from src.enums.chunking_strategy import ChunkingStrategy
-from src.enums.sentence_splitter_mode import SentenceSplitterMode
 
 
 class TestStrategyRegistry(unittest.TestCase):
     """This class tests STRATEGY_HANDLERS."""
 
-    def test_registry_contains_semantic_sentence_handler(self) -> None:
-        """STRATEGY_HANDLERS: registers a SemanticSentenceHandler for SEMANTIC_SENTENCE."""
+    def test_registry_contains_semantic_chunker(self) -> None:
+        """STRATEGY_HANDLERS: registers a SemanticChunker for SEMANTIC_SENTENCE."""
         handler = STRATEGY_HANDLERS[ChunkingStrategy.SEMANTIC_SENTENCE]
-        self.assertIsInstance(handler, SemanticSentenceHandler)
+        self.assertIsInstance(handler, SemanticChunker)
 
 
-class TestSemanticSentenceHandler(unittest.TestCase):
-    """This class tests SemanticSentenceHandler.chunk."""
+class TestSemanticChunkerHandler(unittest.TestCase):
+    """This class tests SemanticChunker.chunk."""
 
     def test_chunk_delegates_to_semantic_sentence_chunks(self) -> None:
         """chunk: forwards arguments to semantic_sentence_chunks and returns its result."""
-        params = SemanticChunkingParams(
-            min_chars=1,
-            max_chars=200,
-            overlap_chars=0,
-            similarity_threshold=0.3,
-            sentence_splitter=SentenceSplitterMode.SIMPLE_REGEX,
-        )
+        params = {
+            "min_chars": 1,
+            "max_chars": 200,
+            "overlap_chars": 0,
+            "similarity_threshold": 0.3,
+            "sentence_splitter": "simple_regex",
+        }
         sentinel = [("chunk", 0, 5)]
         with patch(
-            "src.chunking.strategies.semantic_sentence_chunks",
+            "src.chunking.semantic_chunker.semantic_sentence_chunks",
             return_value=sentinel,
         ) as mocked:
-            result = SemanticSentenceHandler().chunk("Some text.", params)
-        mocked.assert_called_once_with("Some text.", params)
+            result = SemanticChunker().chunk("Some text.", params)
+        mocked.assert_called_once()
         self.assertEqual(result, sentinel)
 
 
@@ -50,7 +48,7 @@ class TestResolveHandler(unittest.TestCase):
     def test_resolve_handler_returns_registered_handler(self) -> None:
         """resolve_handler: returns the handler registered for the strategy."""
         handler = resolve_handler(ChunkingStrategy.SEMANTIC_SENTENCE)
-        self.assertIsInstance(handler, SemanticSentenceHandler)
+        self.assertIsInstance(handler, SemanticChunker)
 
     def test_resolve_handler_raises_for_unregistered_strategy(self) -> None:
         """resolve_handler: raises ValueError when no handler is registered."""

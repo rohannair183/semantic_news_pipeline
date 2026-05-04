@@ -17,7 +17,7 @@ import yaml
 
 from src.config.settings import Settings
 from src.ingestion.article_ingestor import ArticleIngestor
-from src.chunking.semantic_chunker import SemanticChunker
+from src.chunking.chunker import Chunker
 from src.ingestion.article_normalizer import ArticleNormalizer
 from src.ingestion.prechunk_processing import PreChunkPreprocessor
 from tests.unit.ingestion.test_config_helpers import NORMALIZER_ROW_MAPPINGS
@@ -270,7 +270,7 @@ class IngestionPipelineIntegrationTestCase(unittest.TestCase):
                 "profiles": {
                     "default": {
                         "strategy": "semantic_sentence",
-                        "semantic": {
+                        "params": {
                             "min_chars": 5,
                             "max_chars": 200,
                             "overlap_chars": 0,
@@ -706,7 +706,7 @@ class TestPreChunkPreprocessorIntegration(IngestionPipelineIntegrationTestCase):
         self.assertNotIn("trail_text", output_df.columns)
 
 
-class TestSemanticChunkerIntegration(IngestionPipelineIntegrationTestCase):
+class TestChunkerIntegration(IngestionPipelineIntegrationTestCase):
     """This class tests chunk_to_parquet."""
 
     def _prepare_pipeline_for_chunking(self, run_timestamp: str) -> None:
@@ -738,7 +738,7 @@ class TestSemanticChunkerIntegration(IngestionPipelineIntegrationTestCase):
         )
         self._prepare_pipeline_for_chunking("20260428T180000Z")
 
-        chunker = SemanticChunker(configuration_root=self.configuration_root)
+        chunker = Chunker(configuration_root=self.configuration_root)
         written = chunker.chunk_to_parquet(profile="default")
         self.assertEqual(set(written.keys()), {"default"})
         chunk_path = Path(written["default"])
@@ -774,7 +774,7 @@ class TestSemanticChunkerIntegration(IngestionPipelineIntegrationTestCase):
         )
         self._prepare_pipeline_for_chunking("20260428T180000Z")
 
-        chunker = SemanticChunker(configuration_root=self.configuration_root)
+        chunker = Chunker(configuration_root=self.configuration_root)
         first = chunker.chunk_to_parquet(profile="default")
         second = chunker.chunk_to_parquet(profile="default")
         self.assertEqual(first, second)

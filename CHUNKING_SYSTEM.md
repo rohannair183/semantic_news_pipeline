@@ -8,7 +8,7 @@ The chunking stage runs after pre-chunk preprocessing:
 
 1. `ArticleNormalizer` writes day parquet files.
 2. `PreChunkPreprocessor` writes cleaned day parquet files to `checkpoints/pre_chunk`.
-3. `SemanticChunker` reads those files and writes one combined chunk parquet
+3. `Chunker` reads those files and writes one combined chunk parquet
    per chunking profile to `checkpoints/chunked_parquet/<profile>.parquet`.
 
 The day-file convention for the input is `YYYY-MM-DD.parquet`; the chunker
@@ -17,9 +17,9 @@ always rebuilds the combined output from every available input day.
 ## Public API
 
 ```python
-from src.chunking.semantic_chunker import SemanticChunker
+from src.chunking.chunker import Chunker
 
-chunker = SemanticChunker()
+chunker = Chunker()
 chunker.chunk_to_parquet(profile="default")
 ```
 
@@ -62,14 +62,29 @@ via `Settings.load_chunking_config(...)`.
 - `id_columns`: ordered fallback list for source article id.
 - `profile_columns`: ordered fallback list for source profile.
 - `passthrough_columns`: extra source columns copied to each chunk row.
-- `profiles`: mapping of `<profile_name> -> { strategy, semantic }`. Each
-  profile selects a registered strategy and supplies its parameters.
+- `profiles`: mapping of `<profile_name> -> { strategy, params }`. Each
+  profile selects a registered strategy and supplies its parameters as a
+  generic dict that the strategy handler interprets.
+
+## Architecture
+
+```
+Chunker (chunker.py)               -- orchestration: config, file I/O, dispatch
+  -> resolve_handler(strategy)      -- strategy registry (strategies.py)
+    -> SemanticChunker              -- semantic_sentence handler (semantic_chunker.py)
+    -> (future) FixedSizeChunker    -- additional strategies
+```
+
+`Chunker` is the main entry point. Each profile's `strategy` field selects a
+registered handler from `strategies.py`, and its `params` dict is passed
+through opaquely to the handler. The handler owns parameter parsing and
+validation.
 
 ## Implementation Details
 
-### 1) Orchestration (`src/chunking/semantic_chunker.py`)
+### 1) Orchestration (`src/chunking/chunker.py`)
 
-`SemanticChunker.chunk_to_parquet(profile)`:
+`Chunker.chunk_to_parquet(profile)`:
 
 - resolves the typed `ChunkingProfileConfig` for `profile`
 - iterates `*.parquet` under `input_dir`, skipping files without ISO-day stems
@@ -83,11 +98,19 @@ via `Settings.load_chunking_config(...)`.
 ### 2) Strategy registry (`src/chunking/strategies.py`)
 
 `STRATEGY_HANDLERS: dict[ChunkingStrategy, ChunkingStrategyHandler]` maps each
-strategy enum to a handler that implements `chunk(full_text, params)`. The
-default `SemanticSentenceHandler` delegates to `semantic_sentence_chunks`.
+strategy enum to a handler that implements `chunk(full_text, params)`.
 `resolve_handler(strategy)` raises `ValueError` for unregistered strategies.
 
-### 3) Output row construction (`src/chunking/chunk_records.py`)
+### 3) Strategy handlers (e.g. `src/chunking/semantic_chunker.py`)
+
+Each handler implements the `ChunkingStrategyHandler` protocol:
+`chunk(full_text: str, params: dict[str, Any]) -> list[tuple[str, int, int]]`.
+
+The handler owns parsing its `params` dict into typed internal parameters.
+For example, `SemanticChunker` parses the dict into `SemanticChunkingParams`
+and delegates to `semantic_sentence_chunks`.
+
+### 4) Output row construction (`src/chunking/chunk_records.py`)
 
 Each chunk row includes lineage + metadata:
 
@@ -98,7 +121,7 @@ Each chunk row includes lineage + metadata:
 - run metadata: `chunking_strategy`, `chunking_version`, `chunking_params_hash`
 - optional passthrough fields from the source row
 
-The `chunking_params_hash` is a short SHA-256 fingerprint of semantic params,
+The `chunking_params_hash` is a short SHA-256 fingerprint of strategy + params,
 stable across runs with identical config. It is the natural component to bake
 into the database primary key for idempotent upserts.
 
@@ -107,13 +130,13 @@ into the database primary key for idempotent upserts.
 ### A) Add a new chunking strategy
 
 1. Add an enum value in `src/enums/chunking_strategy.py`.
-2. Implement a handler class with a `chunk(full_text, params)` method (in
-   `src/chunking/strategies.py` or a sibling module).
-3. Register the handler in `STRATEGY_HANDLERS`.
-4. Add or update tests for the new handler and any new params.
+2. Implement a handler class with a `chunk(full_text, params)` method (in a
+   new module under `src/chunking/`).
+3. Register the handler in `STRATEGY_HANDLERS` in `strategies.py`.
+4. Add a new YAML profile with `strategy: <new_value>` and `params: {...}`.
+5. Add or update tests for the new handler and any new params.
 
-No changes are required in `SemanticChunker._chunk_row`; it dispatches via the
-registry.
+No changes are required in `Chunker`; it dispatches via the registry.
 
 Examples:
 
@@ -125,7 +148,7 @@ Examples:
 
 1. Add an enum value in `src/enums/sentence_splitter_mode.py`.
 2. Implement the splitter helper in `semantic_split.py`.
-3. Extend config validation in `Settings._load_semantic_chunking_params(...)`.
+3. Extend param validation in `SemanticChunker._parse_params(...)`.
 4. Add tests for edge punctuation, abbreviations, and multiline text.
 
 ### C) Add chunk evaluation modules

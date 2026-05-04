@@ -1,286 +1,124 @@
-"""Unit tests for SemanticChunker."""
+"""Unit tests for SemanticChunker strategy handler."""
 
 import unittest
-from dataclasses import replace
-from pathlib import Path
-import tempfile
-from typing import Optional
-from unittest.mock import patch
-
-import pandas as pd
+from typing import Any, Dict
 
 from src.chunking.semantic_chunker import SemanticChunker
-from src.config.settings import (
-    ChunkingConfig,
-    ChunkingProfileConfig,
-    SemanticChunkingParams,
-    Settings,
-)
-from src.enums.chunking_strategy import ChunkingStrategy
-from src.enums.sentence_splitter_mode import SentenceSplitterMode
 
 
-def _semantic_params(**overrides) -> SemanticChunkingParams:
-    """Build SemanticChunkingParams with sensible defaults overridable per test."""
-    base = {
-        "min_chars": 1,
+def _valid_params(**overrides: Any) -> Dict[str, Any]:
+    """Build a valid params dict with optional overrides."""
+    base: Dict[str, Any] = {
+        "min_chars": 10,
         "max_chars": 200,
         "overlap_chars": 0,
-        "similarity_threshold": 0.3,
-        "sentence_splitter": SentenceSplitterMode.SIMPLE_REGEX,
+        "similarity_threshold": 0.35,
+        "sentence_splitter": "simple_regex",
     }
     base.update(overrides)
-    return SemanticChunkingParams(**base)
+    return base
 
 
-def _minimal_chunking_config(
-    tmp_path: Path,
-    *,
-    profile_strategy: ChunkingStrategy = ChunkingStrategy.SEMANTIC_SENTENCE,
-) -> ChunkingConfig:
-    """Build a minimal ChunkingConfig with one default chunking profile."""
-    return ChunkingConfig(
-        profile_names=["p1"],
-        input_dir=tmp_path / "in",
-        output_dir=tmp_path / "out",
-        text_columns=["body_text"],
-        id_columns=["api_id"],
-        profile_columns=["profile"],
-        passthrough_columns=["headline"],
-        chunking_profiles={
-            "default": ChunkingProfileConfig(
-                strategy=profile_strategy,
-                semantic=_semantic_params(),
-            ),
-        },
-    )
+class TestSemanticChunkerChunk(unittest.TestCase):
+    """This class tests chunk."""
+
+    def test_chunk_returns_spans_for_simple_text(self) -> None:
+        """chunk: produces spans from simple two-sentence input."""
+        params = _valid_params(min_chars=1, max_chars=200)
+        result = SemanticChunker().chunk("Hello. World.", params)
+        self.assertGreater(len(result), 0)
+        for text, start, end in result:
+            self.assertEqual(text, "Hello. World."[start:end])
+
+    def test_chunk_returns_empty_for_blank_text(self) -> None:
+        """chunk: returns empty list for whitespace-only text."""
+        params = _valid_params()
+        result = SemanticChunker().chunk("   ", params)
+        self.assertEqual(result, [])
 
 
-def _write_input_day_parquet(
-    cfg: ChunkingConfig,
-    *,
-    day: str = "2026-05-01",
-    rows: Optional[list[dict]] = None,
-) -> Path:
-    """Write an input parquet day file used by the chunker."""
-    cfg.input_dir.mkdir(parents=True, exist_ok=True)
-    if rows is None:
-        rows = [
-            {
-                "body_text": "One. Two.",
-                "api_id": "a1",
-                "profile": "p",
-                "headline": "H",
-            }
-        ]
-    path = cfg.input_dir / f"{day}.parquet"
-    pd.DataFrame(rows).to_parquet(path, index=False)
-    return path
+class TestSemanticChunkerParseParams(unittest.TestCase):
+    """This class tests _parse_params."""
 
-
-class TestSemanticChunkerChunkToParquet(unittest.TestCase):
-    """This class tests chunk_to_parquet."""
-
-    def test_chunk_to_parquet_writes_single_combined_parquet_per_profile(self) -> None:
-        """chunk_to_parquet: writes one combined parquet covering every input day."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            cfg = _minimal_chunking_config(base)
-            _write_input_day_parquet(
-                cfg,
-                day="2026-05-01",
-                rows=[
-                    {
-                        "body_text": "One. Two.",
-                        "api_id": "a1",
-                        "profile": "p",
-                        "headline": "H",
-                    }
-                ],
-            )
-            _write_input_day_parquet(
-                cfg,
-                day="2026-05-02",
-                rows=[
-                    {
-                        "body_text": "Three. Four.",
-                        "api_id": "a2",
-                        "profile": "p",
-                        "headline": "H2",
-                    }
-                ],
-            )
-
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-                written = chunker.chunk_to_parquet(profile="default")
-
-            self.assertEqual(set(written.keys()), {"default"})
-            combined_path = Path(written["default"])
-            self.assertEqual(combined_path, cfg.output_dir / "default.parquet")
-            self.assertTrue(combined_path.is_file())
-            combined_df = pd.read_parquet(combined_path)
-            self.assertEqual(set(combined_df["source_api_id"]), {"a1", "a2"})
-            self.assertEqual(
-                set(combined_df["source_day"]),
-                {"2026-05-01", "2026-05-02"},
-            )
-
-    def test_chunk_to_parquet_returns_empty_when_no_records(self) -> None:
-        """chunk_to_parquet: returns empty dict when no chunk rows are produced."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            cfg = _minimal_chunking_config(base)
-            cfg.input_dir.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame(columns=["body_text", "api_id"]).to_parquet(
-                cfg.input_dir / "2026-05-03.parquet", index=False
-            )
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-                written = chunker.chunk_to_parquet(profile="default")
-
-            self.assertEqual(written, {})
-            self.assertFalse((cfg.output_dir / "default.parquet").exists())
-
-    def test_chunk_to_parquet_skips_invalid_filename_and_empty_rows(self) -> None:
-        """chunk_to_parquet: skips non-ISO stems and empty row payloads."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            cfg = _minimal_chunking_config(base)
-            cfg.input_dir.mkdir(parents=True, exist_ok=True)
-            pd.DataFrame([{"body_text": "", "api_id": "x"}]).to_parquet(
-                cfg.input_dir / "2026-05-02.parquet", index=False
-            )
-            pd.DataFrame([{"body_text": "text"}]).to_parquet(
-                cfg.input_dir / "not-a-day.parquet", index=False
-            )
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-                written = chunker.chunk_to_parquet(profile="default")
-
-            self.assertEqual(written, {})
-
-    def test_chunk_to_parquet_overwrites_existing_combined_parquet(self) -> None:
-        """chunk_to_parquet: rebuilds the combined parquet on every call."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base = Path(tmpdir)
-            cfg = _minimal_chunking_config(base)
-            cfg.output_dir.mkdir(parents=True, exist_ok=True)
-            stale_path = cfg.output_dir / "default.parquet"
-            pd.DataFrame(
-                [
-                    {
-                        "source_api_id": "stale",
-                        "chunk_index": 0,
-                        "chunk_text": "Stale chunk",
-                    }
-                ]
-            ).to_parquet(stale_path, index=False)
-            _write_input_day_parquet(cfg)
-
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-                chunker.chunk_to_parquet(profile="default")
-
-            rebuilt_df = pd.read_parquet(stale_path)
-            self.assertNotIn("stale", set(rebuilt_df["source_api_id"]))
-            self.assertEqual(set(rebuilt_df["source_api_id"]), {"a1"})
-
-
-class TestSemanticChunkerErrors(unittest.TestCase):
-    """This class tests chunk_to_parquet error paths."""
-
-    def test_chunk_to_parquet_raises_for_unknown_profile(self) -> None:
-        """chunk_to_parquet: raises ValueError when profile is not configured."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = _minimal_chunking_config(Path(tmpdir))
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-            with self.assertRaises(ValueError) as ctx:
-                chunker.chunk_to_parquet(profile="missing")
-            self.assertIn("Unknown chunking profile", str(ctx.exception))
-
-    def test_chunk_to_parquet_raises_when_handler_missing(self) -> None:
-        """chunk_to_parquet: raises ValueError for unregistered strategies."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = _minimal_chunking_config(Path(tmpdir))
-            new_profiles = dict(cfg.chunking_profiles)
-            new_profiles["default"] = replace(
-                cfg.chunking_profiles["default"],
-                strategy="unregistered_strategy",  # type: ignore[arg-type]
-            )
-            cfg = replace(cfg, chunking_profiles=new_profiles)
-            _write_input_day_parquet(cfg)
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-                with self.assertRaises(ValueError) as ctx:
-                    chunker.chunk_to_parquet(profile="default")
-            self.assertIn("No chunking handler registered", str(ctx.exception))
-
-
-class TestSemanticChunkerHelpers(unittest.TestCase):
-    """This class tests helper methods on SemanticChunker."""
-
-    def test_profile_names_and_chunking_profile_names(self) -> None:
-        """helpers: expose ingestion and chunking profile names."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = _minimal_chunking_config(Path(tmpdir))
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-            self.assertEqual(chunker.profile_names, ["p1"])
-            self.assertEqual(chunker.chunking_profile_names, ["default"])
-
-    def test_parse_day_helpers(self) -> None:
-        """helpers: parse ISO day token from filenames."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = _minimal_chunking_config(Path(tmpdir))
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-            parsed = chunker._parse_day_from_filename(  # pylint: disable=protected-access
-                Path("2026-01-01.parquet"),
-            )
-            self.assertEqual(parsed, "2026-01-01")
-            bad = chunker._parse_day_from_filename(  # pylint: disable=protected-access
-                Path("bad.parquet"),
-            )
-            self.assertIsNone(bad)
-
-    def test_resolve_first_string_handles_missing_and_nan(self) -> None:
-        """_resolve_first_string: skips missing and NaN values."""
-        row = pd.Series({"a": float("nan"), "b": "  hi "})
-        value, column = SemanticChunker._resolve_first_string(  # pylint: disable=protected-access
-            row,
-            ["x", "a", "b"],
+    def test_parse_params_accepts_valid_params(self) -> None:
+        """_parse_params: returns SemanticChunkingParams for a valid dict."""
+        parsed = SemanticChunker._parse_params(  # pylint: disable=protected-access
+            _valid_params()
         )
-        self.assertEqual(value, "hi")
-        self.assertEqual(column, "b")
+        self.assertEqual(parsed.min_chars, 10)
+        self.assertEqual(parsed.max_chars, 200)
 
-    def test_output_path_replaces_slashes_in_profile_name(self) -> None:
-        """_output_path: forward slashes in profile name are replaced for filesystem safety."""
-        path = SemanticChunker._output_path(  # pylint: disable=protected-access
-            Path("base"),
-            "team/profile",
-        )
-        self.assertEqual(path, Path("base/team_profile.parquet"))
-
-
-class TestSemanticChunkerChunkRow(unittest.TestCase):
-    """This class tests _chunk_row."""
-
-    def test_chunk_row_returns_empty_when_no_text_column(self) -> None:
-        """_chunk_row: returns empty records when no configured text is present."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            cfg = _minimal_chunking_config(Path(tmpdir))
-            with patch.object(Settings, "load_chunking_config", return_value=cfg):
-                chunker = SemanticChunker()
-            row = pd.Series({"headline": "h"})
-            rows = chunker._chunk_row(  # pylint: disable=protected-access
-                row,
-                source_day="2026-05-01",
-                source_row_index=0,
-                profile=cfg.chunking_profiles["default"],
+    def test_parse_params_raises_when_min_chars_not_int(self) -> None:
+        """_parse_params: raises ValueError for non-integer min_chars."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(min_chars="bad")
             )
-        self.assertEqual(rows, [])
+        self.assertIn("min_chars", str(ctx.exception))
+
+    def test_parse_params_raises_when_min_chars_less_than_one(self) -> None:
+        """_parse_params: raises ValueError for min_chars below 1."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(min_chars=0)
+            )
+        self.assertIn("min_chars", str(ctx.exception))
+
+    def test_parse_params_raises_when_max_less_than_min(self) -> None:
+        """_parse_params: raises ValueError when max_chars < min_chars."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(min_chars=200, max_chars=100)
+            )
+        self.assertIn("max_chars", str(ctx.exception))
+
+    def test_parse_params_raises_when_overlap_not_int(self) -> None:
+        """_parse_params: raises ValueError for non-integer overlap_chars."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(overlap_chars="bad")
+            )
+        self.assertIn("overlap_chars", str(ctx.exception))
+
+    def test_parse_params_raises_when_overlap_negative(self) -> None:
+        """_parse_params: raises ValueError for negative overlap_chars."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(overlap_chars=-1)
+            )
+        self.assertIn("overlap_chars", str(ctx.exception))
+
+    def test_parse_params_raises_when_overlap_too_large(self) -> None:
+        """_parse_params: raises ValueError when overlap_chars >= max_chars."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(max_chars=50, overlap_chars=50)
+            )
+        self.assertIn("overlap_chars", str(ctx.exception))
+
+    def test_parse_params_raises_when_threshold_not_number(self) -> None:
+        """_parse_params: raises ValueError for non-numeric similarity_threshold."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(similarity_threshold="bad")
+            )
+        self.assertIn("similarity_threshold", str(ctx.exception))
+
+    def test_parse_params_raises_when_threshold_out_of_range(self) -> None:
+        """_parse_params: raises ValueError when similarity_threshold > 1."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(similarity_threshold=2)
+            )
+        self.assertIn("similarity_threshold", str(ctx.exception))
+
+    def test_parse_params_raises_when_splitter_invalid(self) -> None:
+        """_parse_params: raises ValueError for unsupported sentence_splitter."""
+        with self.assertRaises(ValueError) as ctx:
+            SemanticChunker._parse_params(  # pylint: disable=protected-access
+                _valid_params(sentence_splitter="bad")
+            )
+        self.assertIn("sentence_splitter", str(ctx.exception))
 
 
 if __name__ == "__main__":  # pragma: no cover

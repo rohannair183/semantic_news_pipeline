@@ -20,7 +20,7 @@ chunking:
   profiles:
     default:
       strategy: semantic_sentence
-      semantic:
+      params:
         min_chars: 200
         max_chars: 2000
         overlap_chars: 100

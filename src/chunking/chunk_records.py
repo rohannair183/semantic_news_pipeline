@@ -6,22 +6,21 @@ import hashlib
 import json
 from typing import Any, Dict, Optional
 
-from src.config.settings import SemanticChunkingParams
 from src.enums.chunking_strategy import ChunkingStrategy
 
 CHUNKING_VERSION = "1"
 
 
-def semantic_params_fingerprint(params: SemanticChunkingParams) -> str:
-    """Return a short stable hash of semantic parameters for lineage."""
-    payload = {
-        "max_chars": params.max_chars,
-        "min_chars": params.min_chars,
-        "overlap_chars": params.overlap_chars,
-        "sentence_splitter": params.sentence_splitter.value,
-        "similarity_threshold": params.similarity_threshold,
-    }
-    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+def chunking_params_fingerprint(
+    strategy: ChunkingStrategy,
+    params: Dict[str, Any],
+) -> str:
+    """Return a short stable hash of strategy + params for lineage."""
+    strategy_label = getattr(strategy, "value", str(strategy))
+    payload = {"strategy": strategy_label, **params}
+    raw = json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), default=str,
+    ).encode("utf-8")
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
@@ -35,13 +34,13 @@ def build_chunk_row(  # pylint: disable=too-many-arguments,too-many-locals
     chunk_end_char: int,
     source_text_column: str,
     strategy: ChunkingStrategy,
-    semantic: SemanticChunkingParams,
+    params: Dict[str, Any],
     source_api_id: Optional[str],
     source_profile: Optional[str],
     passthrough: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Assemble one chunk record dict aligned with the stable output schema."""
-    fingerprint = semantic_params_fingerprint(semantic)
+    fingerprint = chunking_params_fingerprint(strategy, params)
     row: Dict[str, Any] = {
         "source_day": source_day,
         "source_row_index": source_row_index,

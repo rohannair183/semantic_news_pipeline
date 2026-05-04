@@ -381,96 +381,15 @@ class Settings:
                 raise ValueError(
                     f"Ingestion config field '{field_prefix}.strategy': {exc}"
                 ) from exc
-            semantic_raw = raw_profile.get("semantic")
-            if not isinstance(semantic_raw, dict):
+            raw_params = raw_profile.get("params")
+            if not isinstance(raw_params, dict) or not raw_params:
                 raise ValueError(
-                    f"Ingestion config field '{field_prefix}.semantic' must be a mapping"
+                    f"Ingestion config field '{field_prefix}.params' must be a non-empty mapping"
                 )
-            semantic = cls._load_semantic_chunking_params(
-                semantic_raw,
-                field_prefix=f"{field_prefix}.semantic",
-            )
             resolved[profile_name] = ChunkingProfileConfig(
                 strategy=strategy,
-                semantic=semantic,
+                params=dict(raw_params),
             )
-        return resolved
-
-    @classmethod
-    def _load_semantic_chunking_params(
-        cls,
-        raw: Dict[str, Any],
-        field_prefix: str = "chunking.semantic",
-    ) -> "SemanticChunkingParams":
-        """Parse semantic chunking numeric and splitter settings."""
-        min_chars = cls._load_positive_int(
-            raw.get("min_chars"),
-            field_name=f"{field_prefix}.min_chars",
-        )
-        max_chars = cls._load_positive_int(
-            raw.get("max_chars"),
-            field_name=f"{field_prefix}.max_chars",
-        )
-        if max_chars < min_chars:
-            raise ValueError(
-                f"Ingestion config field '{field_prefix}.max_chars' must be >= "
-                f"'{field_prefix}.min_chars'"
-            )
-        overlap_raw = raw.get("overlap_chars", 0)
-        try:
-            overlap_chars = int(overlap_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Ingestion config field '{field_prefix}.overlap_chars' must be an integer"
-            ) from exc
-        if overlap_chars < 0:
-            raise ValueError(
-                f"Ingestion config field '{field_prefix}.overlap_chars' must be >= 0"
-            )
-        if overlap_chars >= max_chars:
-            raise ValueError(
-                f"Ingestion config field '{field_prefix}.overlap_chars' must be < "
-                f"'{field_prefix}.max_chars'"
-            )
-        threshold_raw = raw.get("similarity_threshold", 0.35)
-        try:
-            similarity_threshold = float(threshold_raw)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Ingestion config field '{field_prefix}.similarity_threshold' must be a number"
-            ) from exc
-        if not 0.0 <= similarity_threshold <= 1.0:
-            raise ValueError(
-                f"Ingestion config field '{field_prefix}.similarity_threshold' must be in [0, 1]"
-            )
-        splitter_raw = raw.get(
-            "sentence_splitter",
-            SentenceSplitterMode.SIMPLE_REGEX.value,
-        )
-        try:
-            sentence_splitter = SentenceSplitterMode.from_value(str(splitter_raw))
-        except ValueError as exc:
-            raise ValueError(
-                f"Ingestion config field '{field_prefix}.sentence_splitter': {exc}"
-            ) from exc
-        return SemanticChunkingParams(
-            min_chars=min_chars,
-            max_chars=max_chars,
-            overlap_chars=overlap_chars,
-            similarity_threshold=similarity_threshold,
-            sentence_splitter=sentence_splitter,
-        )
-
-    @classmethod
-    def _load_positive_int(cls, value: Any, field_name: str) -> int:
-        try:
-            resolved = int(value)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                f"Ingestion config field '{field_name}' must be a positive integer"
-            ) from exc
-        if resolved < 1:
-            raise ValueError(f"Ingestion config field '{field_name}' must be >= 1")
         return resolved
 
     @classmethod
@@ -1146,7 +1065,7 @@ class ChunkingProfileConfig:
     """Typed per-profile chunking strategy and parameters."""
 
     strategy: ChunkingStrategy
-    semantic: SemanticChunkingParams
+    params: Dict[str, Any]
 
 
 @dataclass(frozen=True)
