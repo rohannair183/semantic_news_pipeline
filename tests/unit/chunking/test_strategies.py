@@ -9,6 +9,7 @@ from src.chunking.strategies import (
     resolve_handler,
 )
 from src.enums.chunking_strategy import ChunkingStrategy
+from tests.unit.chunking.test_chunker import _default_params
 
 
 class TestStrategyRegistry(unittest.TestCase):
@@ -25,13 +26,7 @@ class TestSemanticChunkerHandler(unittest.TestCase):
 
     def test_chunk_delegates_to_semantic_sentence_chunks(self) -> None:
         """chunk: forwards arguments to semantic_sentence_chunks and returns its result."""
-        params = {
-            "min_chars": 1,
-            "max_chars": 200,
-            "overlap_chars": 0,
-            "similarity_threshold": 0.3,
-            "sentence_splitter": "simple_regex",
-        }
+        params = _default_params()
         sentinel = [("chunk", 0, 5)]
         with patch(
             "src.chunking.semantic_chunker.semantic_sentence_chunks",

@@ -17,7 +17,6 @@ class ChunkingStrategyHandler(Protocol):  # pylint: disable=too-few-public-metho
         params: Dict[str, Any],
     ) -> List[Tuple[str, int, int]]:
         """Return chunk spans (text, start_char, end_char_exclusive) for ``full_text``."""
-        ...
 
 
 STRATEGY_HANDLERS: Dict[ChunkingStrategy, ChunkingStrategyHandler] = {
