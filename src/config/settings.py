@@ -16,6 +16,7 @@ from src.enums.guardian_order_by import GuardianOrderBy
 from src.enums.ingestion_timeframe_mode import IngestionTimeframeMode
 from src.enums.ingestion_timeframe_relative import IngestionTimeframeRelative
 from src.enums.chunking_strategy import ChunkingStrategy
+from src.enums.embedding_provider import EmbeddingProvider
 from src.enums.pre_chunk_operation import PreChunkOperation
 from src.enums.sentence_splitter_mode import SentenceSplitterMode
 from src.enums.yaml_config_type import YAMLConfigType
@@ -354,6 +355,60 @@ class Settings:
         )
 
     @classmethod
+    def load_embedding_config(
+        cls,
+        configuration_root: Optional[Path] = None,
+    ) -> "EmbeddingConfig":
+        """Load and validate typed embedding configuration."""
+        parser = (
+            YAMLConfigParser()
+            if configuration_root is None
+            else YAMLConfigParser(configuration_root=configuration_root)
+        )
+        raw = parser.parse(
+            config_type=YAMLConfigType.EMBEDDINGS,
+            filename="embeddings.yaml",
+        )
+        section = cls._load_required_section(raw, section_name="embeddings")
+        input_dir = Path(
+            str(section.get("input_dir", "checkpoints/chunked_parquet"))
+        )
+        output_dir = Path(
+            str(section.get("output_dir", "checkpoints/embeddings"))
+        )
+        text_column = cls._load_non_empty_string(
+            section.get("text_column"),
+            field_name="embeddings.text_column",
+        )
+        raw_provider = section.get("provider")
+        if raw_provider is None:
+            raise ValueError(
+                "Embedding config field 'embeddings.provider' is required"
+            )
+        try:
+            provider = EmbeddingProvider.from_value(str(raw_provider))
+        except ValueError as exc:
+            raise ValueError(
+                f"Embedding config field 'embeddings.provider': {exc}"
+            ) from exc
+        model_name = cls._load_non_empty_string(
+            section.get("model_name"),
+            field_name="embeddings.model_name",
+        )
+        batch_size = cls._load_positive_int(
+            section.get("batch_size"),
+            field_name="embeddings.batch_size",
+        )
+        return EmbeddingConfig(
+            input_dir=input_dir,
+            output_dir=output_dir,
+            text_column=text_column,
+            provider=provider,
+            model_name=model_name,
+            batch_size=batch_size,
+        )
+
+    @classmethod
     def _load_chunking_profiles(
         cls,
         raw_profiles: Any,
@@ -446,6 +501,19 @@ class Settings:
             unknown_values = ", ".join(str(name) for name in unknown_profiles)
             raise ValueError(f"Unknown ingestion profiles requested: {unknown_values}")
         return [str(name) for name in selected_profiles]
+
+    @staticmethod
+    def _load_positive_int(value: Any, field_name: str) -> int:
+        """Parse ``value`` as a positive integer or raise ValueError."""
+        try:
+            resolved_value = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"Config field '{field_name}' must be a positive integer"
+            ) from exc
+        if resolved_value < 1:
+            raise ValueError(f"Config field '{field_name}' must be >= 1")
+        return resolved_value
 
     @staticmethod
     def _load_optional_positive_int(value: Any, field_name: str) -> Optional[int]:
@@ -1096,6 +1164,18 @@ class GuardianProfileConfig:  # pylint: disable=too-many-instance-attributes
     order_by: GuardianOrderBy = GuardianOrderBy.NEWEST
     use_next_fallback: bool = True
     content_show_fields: str = "all"
+
+
+@dataclass(frozen=True)
+class EmbeddingConfig:
+    """Typed configuration for the embedding pipeline."""
+
+    input_dir: Path
+    output_dir: Path
+    text_column: str
+    provider: EmbeddingProvider
+    model_name: str
+    batch_size: int
 
 
 @dataclass(frozen=True)

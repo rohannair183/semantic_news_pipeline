@@ -1,0 +1,7 @@
+embeddings:
+  input_dir: checkpoints/chunked_parquet
+  output_dir: checkpoints/embeddings
+  text_column: chunk_text
+  provider: sentence_transformers
+  model_name: all-MiniLM-L6-v2
+  batch_size: 64
