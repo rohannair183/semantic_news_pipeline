@@ -13,6 +13,8 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,12 +26,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[ci]
 
+      - name: Get changed Python files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+          else
+            BASE=${{ github.event.before }}
+          fi
+          FILES=$(git diff --name-only --diff-filter=ACM "$BASE" HEAD -- '*.py' | tr '\n' ' ')
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
       - name: Run pylint
-        run: pylint src tests
+        if: steps.changed.outputs.files != ''
+        run: pylint ${{ steps.changed.outputs.files }}
 
       - name: Run ruff
-        run: |
-            ruff check .
+        if: steps.changed.outputs.files != ''
+        run: ruff check ${{ steps.changed.outputs.files }}
 
   unit-tests:
     runs-on: ubuntu-latest
