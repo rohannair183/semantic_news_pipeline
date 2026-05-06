@@ -50,7 +50,7 @@ def _fake_embed(texts: list[str]) -> list[list[float]]:
 class _FakeHandler:  # pylint: disable=too-few-public-methods
     """Fake embedding handler that returns deterministic vectors."""
 
-    def embed(self, texts: list[str]) -> list[list[float]]:
+    def embed(self, texts: list[str], batch_size: int = 64) -> list[list[float]]:  # pylint: disable=unused-argument
         """Return fake embeddings for ``texts``."""
         return _fake_embed(texts)
 
@@ -108,18 +108,18 @@ class TestEmbedderEmbedToParquet(unittest.TestCase):
                     embedder.embed_to_parquet(profile="missing")
                 self.assertIn("missing", str(ctx.exception))
 
-    def test_embed_to_parquet_batches_correctly(self) -> None:
-        """embed_to_parquet: splits texts into batches of configured size."""
+    def test_embed_to_parquet_passes_batch_size_to_handler(self) -> None:
+        """embed_to_parquet: forwards configured batch_size to the handler."""
         with tempfile.TemporaryDirectory() as tmpdir:
             base = Path(tmpdir)
             cfg = _minimal_embedding_config(base)
             _write_input_parquet(cfg)
-            call_sizes: list[int] = []
+            received_batch_sizes: list[int] = []
 
             class _TrackingHandler:  # pylint: disable=too-few-public-methods
-                def embed(self, texts: list[str]) -> list[list[float]]:
-                    """Track call sizes and return fake embeddings."""
-                    call_sizes.append(len(texts))
+                def embed(self, texts: list[str], batch_size: int = 64) -> list[list[float]]:
+                    """Track received batch_size and return fake embeddings."""
+                    received_batch_sizes.append(batch_size)
                     return _fake_embed(texts)
 
             with (
@@ -132,7 +132,7 @@ class TestEmbedderEmbedToParquet(unittest.TestCase):
                 embedder = Embedder()
                 embedder.embed_to_parquet(profile="default")
 
-            self.assertEqual(call_sizes, [2, 1])
+            self.assertEqual(received_batch_sizes, [cfg.batch_size])
 
     def test_embed_to_parquet_preserves_original_columns(self) -> None:
         """embed_to_parquet: output contains all original columns plus embedding."""

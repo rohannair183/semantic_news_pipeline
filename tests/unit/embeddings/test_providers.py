@@ -45,7 +45,7 @@ class TestSentenceTransformerHandler(unittest.TestCase):
         original = sys.modules.get("sentence_transformers")
         sys.modules["sentence_transformers"] = mock_st_module
         try:
-            result = handler.embed(["hello", "world"])
+            result = handler.embed(["hello", "world"], batch_size=32)
         finally:
             if original is None:
                 sys.modules.pop("sentence_transformers", None)
@@ -55,7 +55,9 @@ class TestSentenceTransformerHandler(unittest.TestCase):
         mock_st_cls.assert_called_once_with("test-model")
         mock_model.encode.assert_called_once_with(
             ["hello", "world"],
+            batch_size=32,
             show_progress_bar=False,
+            convert_to_numpy=True,
         )
         self.assertEqual(len(result), 2)
         self.assertAlmostEqual(result[0][0], 0.1)

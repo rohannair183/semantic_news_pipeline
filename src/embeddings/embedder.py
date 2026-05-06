@@ -41,13 +41,9 @@ class Embedder:
         return self._config.output_dir / f"{safe_profile}.parquet"
 
     def _embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """Embed ``texts`` in batches using the configured provider."""
+        """Embed all ``texts`` in one call, delegating batching to the provider."""
         handler = resolve_provider(self._config.provider, self._config.model_name)
-        all_embeddings: List[List[float]] = []
-        for start in range(0, len(texts), self._config.batch_size):
-            batch = texts[start : start + self._config.batch_size]
-            all_embeddings.extend(handler.embed(batch))
-        return all_embeddings
+        return handler.embed(texts, batch_size=self._config.batch_size)
 
     def embed_to_parquet(self, profile: str) -> Dict[str, str]:
         """Embed chunks from input parquet and write results with an ``embedding`` column.

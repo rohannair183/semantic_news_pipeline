@@ -10,7 +10,7 @@ from src.enums.embedding_provider import EmbeddingProvider
 class EmbeddingProviderHandler(Protocol):  # pylint: disable=too-few-public-methods
     """Protocol for embedding provider handlers used by the registry."""
 
-    def embed(self, texts: List[str]) -> List[List[float]]:
+    def embed(self, texts: List[str], batch_size: int = 64) -> List[List[float]]:
         """Return one embedding vector per input text."""
 
 
@@ -28,11 +28,16 @@ class SentenceTransformerHandler:  # pylint: disable=too-few-public-methods
             self._model = SentenceTransformer(self._model_name)
         return self._model
 
-    def embed(self, texts: List[str]) -> List[List[float]]:
+    def embed(self, texts: List[str], batch_size: int = 64) -> List[List[float]]:
         """Encode ``texts`` into embedding vectors."""
         model = self._load_model()
-        embeddings = model.encode(texts, show_progress_bar=False)  # type: ignore[union-attr]
-        return [list(map(float, vec)) for vec in embeddings]
+        embeddings = model.encode(  # type: ignore[union-attr]
+            texts,
+            batch_size=batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        return embeddings.tolist()  # type: ignore[union-attr]
 
 
 def resolve_provider(
