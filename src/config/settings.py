@@ -100,6 +100,15 @@ class Settings:
                     os.environ[key] = value
 
     @classmethod
+    def load_repository_dotenv(cls) -> None:
+        """Merge repository root `.env` into os.environ using the same rules as ``load_settings``.
+
+        Call this before code that reads optional env vars directly (such as orchestrator
+        ``skip_when.missing_env_var``) so a local `.env` matches ingestion client bootstrap.
+        """
+        cls._load_env_file()
+
+    @classmethod
     def load_ingestion_config(cls) -> Dict[str, Any]:
         """Load Guardian ingestion settings from YAML config."""
         parser = YAMLConfigParser()

@@ -19,8 +19,13 @@ class TestOrchestratorCliParseArgs(unittest.TestCase):
     def test_parse_args_defaults(self):
         """parse_args: provides default bundled orchestrator path."""
         resolved = orchestrator_cli.parse_args([])
-        expected = orchestrator_cli.DEFAULT_ORCHESTRATOR_PATH
-        self.assertEqual(resolved.config, expected)
+        self.assertIsNone(resolved.config)
+        self.assertEqual(resolved.mode, "production")
+
+    def test_parse_args_accepts_test_mode(self):
+        """parse_args: accepts test preset mode."""
+        resolved = orchestrator_cli.parse_args(["--mode", "test"])
+        self.assertEqual(resolved.mode, "test")
 
 
 class TestOrchestratorCliMain(unittest.TestCase):
@@ -61,12 +66,50 @@ class TestOrchestratorCliMain(unittest.TestCase):
             Settings,
             "load_orchestrator_config_from_path",
             return_value=config,
-        ):
+        ) as mocked_load:
             with mock.patch.object(orchestrator_cli, "Orchestrator") as orchestrator_cls:
                 orchestrator_cls.return_value.run.return_value = fake_summary
                 exit_code = orchestrator_cli.main(
                     ["--config", str(fake_config_path)],
                 )
+        resolved_arg = mocked_load.call_args.args[0]
+        self.assertEqual(resolved_arg, fake_config_path.resolve())
+        self.assertEqual(exit_code, 0)
+
+    def test_main_uses_test_mode_default_config(self):
+        """main: selects test preset path when mode is test."""
+        config = OrchestratorConfig(fail_fast=True, tasks=tuple())
+        fake_summary = mock.Mock()
+        fake_summary.has_failure = False
+
+        with mock.patch.object(
+            Settings,
+            "load_orchestrator_config_from_path",
+            return_value=config,
+        ) as mocked_load:
+            with mock.patch.object(orchestrator_cli, "Orchestrator") as orchestrator_cls:
+                orchestrator_cls.return_value.run.return_value = fake_summary
+                exit_code = orchestrator_cli.main(["--mode", "test"])
+        resolved_arg = mocked_load.call_args.args[0]
+        self.assertEqual(resolved_arg, orchestrator_cli.TEST_ORCHESTRATOR_PATH)
+        self.assertEqual(exit_code, 0)
+
+    def test_main_uses_production_mode_default_config(self):
+        """main: selects bundled production preset path when argv is omitted."""
+        config = OrchestratorConfig(fail_fast=True, tasks=tuple())
+        fake_summary = mock.Mock()
+        fake_summary.has_failure = False
+
+        with mock.patch.object(
+            Settings,
+            "load_orchestrator_config_from_path",
+            return_value=config,
+        ) as mocked_load:
+            with mock.patch.object(orchestrator_cli, "Orchestrator") as orchestrator_cls:
+                orchestrator_cls.return_value.run.return_value = fake_summary
+                exit_code = orchestrator_cli.main([])
+        resolved_arg = mocked_load.call_args.args[0]
+        self.assertEqual(resolved_arg, orchestrator_cli.DEFAULT_ORCHESTRATOR_PATH)
         self.assertEqual(exit_code, 0)
 
     def test_main_forwards_configuration_root(self):

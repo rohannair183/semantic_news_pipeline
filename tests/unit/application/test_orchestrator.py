@@ -65,6 +65,23 @@ class TestEvaluateOrchestratorSkipWhen(unittest.TestCase):
 class TestOrchestratorRun(unittest.TestCase):
     """This class tests Orchestrator."""
 
+    def test_run_loads_repository_dotenv_before_tasks(self):
+        """Orchestrator.run: merges repository .env before evaluating tasks."""
+
+        def ok(_spec, _root, _timer):
+            return None
+
+        config = OrchestratorConfig(
+            fail_fast=True,
+            tasks=(_stub_spec("only", OrchestratorTaskKind.CHUNKING),),
+        )
+        with mock.patch("src.application.orchestrator.Settings.load_repository_dotenv") as mocked:
+            Orchestrator(
+                config,
+                runners={OrchestratorTaskKind.CHUNKING: ok},
+            ).run()
+        mocked.assert_called_once()
+
     def test_fail_fast_halts_remaining_tasks(self):
         """Orchestrator.run: fail_fast skips later tasks after a failure."""
 

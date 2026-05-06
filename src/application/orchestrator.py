@@ -12,6 +12,7 @@ from src.config.settings import (
     OrchestratorConfig,
     OrchestratorSkipWhen,
     OrchestratorTaskKind,
+    Settings,
 )
 from src.utils.timer import Timer
 
@@ -76,6 +77,7 @@ class Orchestrator:
 
     def run(self) -> OrchestratorRunSummary:
         """Execute tasks in YAML order respecting ``fail_fast`` and skips."""
+        Settings.load_repository_dotenv()
         results: List[OrchestratorTaskResult] = []
         halt = False
         for spec in self._config.tasks:

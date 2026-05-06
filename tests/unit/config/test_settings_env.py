@@ -73,6 +73,12 @@ class TestSettingsLoadEnvFile(unittest.TestCase):
                 getattr(Settings, "_load_env_file")()
                 self.assertIsNone(os.environ.get("GUARDIAN_API_KEY"))
 
+    def test_load_repository_dotenv_delegates_to_load_env_file(self):
+        """load_repository_dotenv: delegates to _load_env_file."""
+        with patch.object(Settings, "_load_env_file") as mocked:
+            Settings.load_repository_dotenv()
+        mocked.assert_called_once()
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()
