@@ -16,10 +16,22 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install project and CI dependencies
+      - name: Install project, CI tooling, and runtime (embeddings)
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[ci]"
+          # [runtime] pulls sentence-transformers (embeddings YAML default provider).
+          pip install -e ".[ci,runtime]"
 
-      - name: Run YAML orchestrator (CI preset)
+      - name: Fail fast if ingestion secret missing
+        env:
+          GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
+        run: |
+          if [ -z "$GUARDIAN_API_KEY" ]; then
+            echo "::error title=Missing secret::Add GUARDIAN_API_KEY under Settings → Secrets and variables → Actions (or attach an Environment secret with the required key)."
+            exit 1
+          fi
+
+      - name: Run YAML orchestrator (full preset)
+        env:
+          GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
         run: python -m src.application --config configuration/application/orchestrator.yaml
