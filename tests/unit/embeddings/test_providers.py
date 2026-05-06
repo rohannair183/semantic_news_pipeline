@@ -11,6 +11,7 @@ from src.embeddings.providers import (
     resolve_provider,
 )
 from src.enums.embedding_provider import EmbeddingProvider
+from src.utils.timer import Timer
 
 
 class TestResolveProvider(unittest.TestCase):
@@ -29,6 +30,16 @@ class TestResolveProvider(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             resolve_provider(EmbeddingProvider.OPENAI, "text-embedding-3-small")
         self.assertIn("No embedding handler registered", str(ctx.exception))
+
+    def test_resolve_provider_passes_timer_to_handler(self) -> None:
+        """resolve_provider: forwards timer to the constructed handler."""
+        timer = Timer()
+        handler = resolve_provider(
+            EmbeddingProvider.SENTENCE_TRANSFORMERS,
+            "model",
+            timer=timer,
+        )
+        self.assertIs(handler._timer, timer)  # pylint: disable=protected-access
 
 
 class TestSentenceTransformerHandler(unittest.TestCase):
@@ -83,6 +94,51 @@ class TestSentenceTransformerHandler(unittest.TestCase):
                 sys.modules["sentence_transformers"] = original
 
         self.assertEqual(mock_st_cls.call_count, 1)
+
+    def test_embed_with_timer_records_sections(self) -> None:
+        """embed: records provider.load_model and provider.encode timer sections."""
+        mock_model = MagicMock()
+        mock_model.encode.return_value = np.array([[0.5, 0.6]])
+        mock_st_cls = MagicMock(return_value=mock_model)
+        mock_st_module = MagicMock(SentenceTransformer=mock_st_cls)
+
+        timer = Timer()
+        handler = SentenceTransformerHandler("test-model", timer=timer)
+        original = sys.modules.get("sentence_transformers")
+        sys.modules["sentence_transformers"] = mock_st_module
+        try:
+            result = handler.embed(["text"], batch_size=16)
+        finally:
+            if original is None:
+                sys.modules.pop("sentence_transformers", None)
+            else:
+                sys.modules["sentence_transformers"] = original
+
+        labels = [r[0] for r in timer.records]
+        self.assertIn("provider.load_model", labels)
+        self.assertIn("provider.encode", labels)
+        self.assertEqual(len(result), 1)
+
+    def test_embed_without_timer_works(self) -> None:
+        """embed: works correctly when no timer is provided."""
+        mock_model = MagicMock()
+        mock_model.encode.return_value = np.array([[1.0, 2.0]])
+        mock_st_cls = MagicMock(return_value=mock_model)
+        mock_st_module = MagicMock(SentenceTransformer=mock_st_cls)
+
+        handler = SentenceTransformerHandler("test-model")
+        original = sys.modules.get("sentence_transformers")
+        sys.modules["sentence_transformers"] = mock_st_module
+        try:
+            result = handler.embed(["hello"])
+        finally:
+            if original is None:
+                sys.modules.pop("sentence_transformers", None)
+            else:
+                sys.modules["sentence_transformers"] = original
+
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result[0][0], 1.0)
 
 
 if __name__ == "__main__":  # pragma: no cover
