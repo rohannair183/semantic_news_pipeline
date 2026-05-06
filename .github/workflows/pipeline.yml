@@ -22,4 +22,4 @@ jobs:
           pip install -e ".[ci]"
 
       - name: Run YAML orchestrator (CI preset)
-        run: python -m src.application --config configuration/application/orchestrator_ci.yaml
+        run: python -m src.application --config configuration/application/orchestrator.yaml
