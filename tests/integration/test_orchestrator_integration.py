@@ -1,0 +1,71 @@
+"""Integration wiring for declarative YAML orchestrator loading."""
+
+from __future__ import annotations
+
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from src.application.orchestrator import Orchestrator
+from src.config.settings import Settings
+from src.enums.orchestrator_task_kind import OrchestratorTaskKind
+
+
+def _noop_runner(_spec, _root, _timer):
+    """Return sentinel output without touching external services."""
+    return None
+
+
+class TestOrchestratorRepoYaml(unittest.TestCase):
+    """This class tests repository orchestrator presets."""
+
+    def test_orchestrator_ci_yaml_loads_under_application_dir(self):
+        """load_orchestrator_config_from_path: accepts CI YAML on disk."""
+
+        repo_root = Path(__file__).resolve().parents[2]
+        path = repo_root / "configuration" / "application" / "orchestrator_ci.yaml"
+        config = Settings.load_orchestrator_config_from_path(path)
+
+        noop_map = {kind: _noop_runner for kind in OrchestratorTaskKind}
+
+        orchestrator = Orchestrator(config, runners=noop_map)
+        summary = orchestrator.run()
+
+        self.assertFalse(summary.has_failure)
+        disabled = sum(1 for r in summary.task_results if r.outcome == "skipped_disabled")
+        self.assertGreaterEqual(disabled, 2)
+
+    def test_orchestrator_ci_yaml_runs_with_default_runners(self):
+        """Orchestrator.run: executes CI YAML stages with real registered runners."""
+        repo_root = Path(__file__).resolve().parents[2]
+        path = repo_root / "configuration" / "application" / "orchestrator_ci.yaml"
+        config = Settings.load_orchestrator_config_from_path(path)
+        summary = Orchestrator(config).run()
+
+        self.assertFalse(summary.has_failure)
+        outcomes = {result.outcome for result in summary.task_results}
+        self.assertIn("success", outcomes)
+        self.assertIn("skipped_disabled", outcomes)
+
+    def test_load_via_custom_configuration_root(self):
+        """load_orchestrator_config: honors alternate configuration directories."""
+
+        with TemporaryDirectory() as tmp:
+            cfg_root = Path(tmp)
+            app_dir = cfg_root / "application"
+            app_dir.mkdir(parents=True)
+            orch_path = app_dir / "orchestrator.yaml"
+            orch_path.write_text(
+                "fail_fast: true\n"
+                "tasks:\n"
+                "  - kind: chunking\n"
+                "    params:\n"
+                "      profile: probe\n",
+                encoding="utf-8",
+            )
+            parsed = Settings.load_orchestrator_config(configuration_root=cfg_root)
+            self.assertEqual(parsed.tasks[0].params.profile, "probe")
+
+
+if __name__ == "__main__":  # pragma: no cover
+    unittest.main()

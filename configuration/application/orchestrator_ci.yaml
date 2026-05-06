@@ -1,0 +1,21 @@
+# CI-safe preset: skips Guardian API ingestion and heavyweight embeddings unless extras/secrets wired.
+fail_fast: true
+tasks:
+  - id: article_ingestor
+    kind: article_ingestor
+    enabled: false
+  - id: article_normalizer
+    kind: article_normalizer
+    params:
+      day: utc_today
+  - id: pre_chunk_preprocessor
+    kind: pre_chunk_preprocessor
+  - id: chunking
+    kind: chunking
+    params:
+      profile: default
+  - id: embeddings
+    kind: embeddings
+    enabled: false
+    params:
+      profile: default

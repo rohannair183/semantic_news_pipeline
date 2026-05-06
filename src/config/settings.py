@@ -19,6 +19,8 @@ from src.enums.chunking_strategy import ChunkingStrategy
 from src.enums.embedding_provider import EmbeddingProvider
 from src.enums.pre_chunk_operation import PreChunkOperation
 from src.enums.sentence_splitter_mode import SentenceSplitterMode
+from src.enums.orchestrator_normalizer_day_token import OrchestratorNormalizerDayToken
+from src.enums.orchestrator_task_kind import OrchestratorTaskKind
 from src.enums.yaml_config_type import YAMLConfigType
 from src.utils.dates import coerce_day, utc_today_date
 
@@ -407,6 +409,182 @@ class Settings:
             model_name=model_name,
             batch_size=batch_size,
         )
+
+    @classmethod
+    def load_orchestrator_config(
+        cls,
+        configuration_root: Optional[Path] = None,
+        filename: str = "orchestrator.yaml",
+    ) -> "OrchestratorConfig":
+        """Load and validate typed YAML orchestrator pipeline configuration."""
+        parser = (
+            YAMLConfigParser()
+            if configuration_root is None
+            else YAMLConfigParser(configuration_root=configuration_root)
+        )
+        raw = parser.parse(
+            config_type=YAMLConfigType.APPLICATION,
+            filename=filename,
+        )
+        return cls._parse_orchestrator_config_mapping(raw)
+
+    @classmethod
+    def load_orchestrator_config_from_path(cls, config_path: Path) -> "OrchestratorConfig":
+        """Load orchestrator configuration from an explicit YAML file path."""
+        raw = YAMLConfigParser().parse_path(config_path)
+        return cls._parse_orchestrator_config_mapping(raw)
+
+    @classmethod
+    def _parse_orchestrator_config_mapping(cls, raw: Dict[str, Any]) -> "OrchestratorConfig":
+        if not raw:
+            raise ValueError("Orchestrator YAML must be a non-empty mapping")
+        fail_fast = raw.get("fail_fast", True)
+        if not isinstance(fail_fast, bool):
+            raise ValueError("Orchestrator field 'fail_fast' must be a boolean")
+        raw_tasks = raw.get("tasks")
+        if not isinstance(raw_tasks, list) or not raw_tasks:
+            raise ValueError("Orchestrator field 'tasks' must be a non-empty list")
+        tasks: list[OrchestratorTaskSpec] = []
+        for index, raw_task in enumerate(raw_tasks):
+            tasks.append(
+                cls._parse_orchestrator_task_spec(
+                    raw_task=raw_task,
+                    index=index,
+                )
+            )
+        return OrchestratorConfig(
+            fail_fast=fail_fast,
+            tasks=tuple(tasks),
+        )
+
+    @classmethod
+    def _parse_orchestrator_task_spec(
+        cls,
+        raw_task: Any,
+        index: int,
+    ) -> OrchestratorTaskSpec:
+        prefix = f"orchestrator.tasks[{index}]"
+        if not isinstance(raw_task, dict):
+            raise ValueError(f"{prefix} must be a mapping")
+        raw_kind = raw_task.get("kind")
+        if raw_kind is None:
+            raise ValueError(f"{prefix} requires 'kind'")
+        try:
+            kind = OrchestratorTaskKind.from_value(str(raw_kind).strip())
+        except ValueError as exc:
+            raise ValueError(f"{prefix}.kind: {exc}") from exc
+        raw_id = raw_task.get("id")
+        if raw_id is None:
+            task_id = kind.value
+        else:
+            if not isinstance(raw_id, str) or not raw_id.strip():
+                raise ValueError(f"{prefix}.id must be a non-empty string when provided")
+            task_id = raw_id.strip()
+        enabled = raw_task.get("enabled", True)
+        if not isinstance(enabled, bool):
+            raise ValueError(f"{prefix}.enabled must be a boolean")
+        skip_when = cls._parse_orchestrator_skip_when(
+            raw_task.get("skip_when"),
+            field_prefix=f"{prefix}.skip_when",
+        )
+        params = cls._parse_orchestrator_task_params(
+            kind=kind,
+            raw_params=raw_task.get("params"),
+            field_prefix=f"{prefix}.params",
+        )
+        return OrchestratorTaskSpec(
+            task_id=task_id,
+            kind=kind,
+            enabled=enabled,
+            skip_when=skip_when,
+            params=params,
+        )
+
+    @classmethod
+    def _parse_orchestrator_skip_when(
+        cls,
+        raw: Any,
+        field_prefix: str,
+    ) -> Optional[OrchestratorSkipWhen]:
+        if raw is None:
+            return None
+        if not isinstance(raw, dict):
+            raise ValueError(f"{field_prefix} must be a mapping when provided")
+        allowed = {"missing_env_var"}
+        unknown = set(raw.keys()) - allowed
+        if unknown:
+            joined = ", ".join(sorted(unknown))
+            raise ValueError(f"{field_prefix} has unknown keys: {joined}")
+        missing_env = raw.get("missing_env_var")
+        if missing_env is None:
+            return OrchestratorSkipWhen(missing_env_var=None)
+        if not isinstance(missing_env, str) or not missing_env.strip():
+            raise ValueError(
+                f"{field_prefix}.missing_env_var must be a non-empty string when provided"
+            )
+        return OrchestratorSkipWhen(missing_env_var=missing_env.strip())
+
+    @classmethod
+    def _parse_orchestrator_task_params(
+        cls,
+        kind: OrchestratorTaskKind,
+        raw_params: Any,
+        field_prefix: str,
+    ) -> OrchestratorTaskParams:
+        if raw_params is None:
+            raw_params = {}
+        if not isinstance(raw_params, dict):
+            raise ValueError(f"{field_prefix} must be a mapping when provided")
+        profile = "default"
+        if kind in (
+            OrchestratorTaskKind.CHUNKING,
+            OrchestratorTaskKind.EMBEDDINGS,
+        ):
+            allowed = {"profile"}
+            unknown = set(raw_params.keys()) - allowed
+            if unknown:
+                joined = ", ".join(sorted(unknown))
+                raise ValueError(f"{field_prefix} has unknown keys for {kind.value}: {joined}")
+            raw_profile = raw_params.get("profile", "default")
+            if not isinstance(raw_profile, str) or not raw_profile.strip():
+                raise ValueError(f"{field_prefix}.profile must be a non-empty string")
+            profile = raw_profile.strip()
+            return OrchestratorTaskParams(
+                profile=profile,
+                normalizer_day_raw=None,
+            )
+        if kind == OrchestratorTaskKind.ARTICLE_NORMALIZER:
+            allowed = {"day"}
+            unknown = set(raw_params.keys()) - allowed
+            if unknown:
+                joined = ", ".join(sorted(unknown))
+                raise ValueError(f"{field_prefix} has unknown keys for {kind.value}: {joined}")
+            normalizer_day_raw = cls._parse_orchestrator_normalizer_day_value(
+                raw_params.get("day"),
+                field_prefix=f"{field_prefix}.day",
+            )
+            return OrchestratorTaskParams(
+                profile=profile,
+                normalizer_day_raw=normalizer_day_raw,
+            )
+        allowed_keys: set[str] = set()
+        unknown_leaf = set(raw_params.keys()) - allowed_keys
+        if unknown_leaf:
+            joined = ", ".join(sorted(unknown_leaf))
+            raise ValueError(f"{field_prefix} has unknown keys for {kind.value}: {joined}")
+        return OrchestratorTaskParams(profile=profile, normalizer_day_raw=None)
+
+    @staticmethod
+    def _parse_orchestrator_normalizer_day_value(raw_day: Any, field_prefix: str) -> Optional[str]:
+        if raw_day is None:
+            return None
+        if not isinstance(raw_day, str) or not raw_day.strip():
+            raise ValueError(f"{field_prefix} must be a non-empty string when provided")
+        token = raw_day.strip()
+        if token == OrchestratorNormalizerDayToken.UTC_TODAY.value:
+            return token
+        coerce_day(token)
+        return token
 
     @classmethod
     def _load_chunking_profiles(
@@ -1184,3 +1362,37 @@ class IngestionTimeframe:
 
     from_date: date
     to_date: date
+
+
+@dataclass(frozen=True)
+class OrchestratorSkipWhen:
+    """Optional guard parsed from orchestrator YAML ``skip_when``."""
+
+    missing_env_var: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class OrchestratorTaskParams:
+    """Per-task params for orchestrator YAML tasks."""
+
+    profile: str = "default"
+    normalizer_day_raw: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class OrchestratorTaskSpec:
+    """Single declarative orchestrator pipeline task."""
+
+    task_id: str
+    kind: OrchestratorTaskKind
+    enabled: bool
+    skip_when: Optional[OrchestratorSkipWhen]
+    params: OrchestratorTaskParams
+
+
+@dataclass(frozen=True)
+class OrchestratorConfig:
+    """Typed declarative orchestrator pipeline loaded from YAML."""
+
+    fail_fast: bool
+    tasks: tuple[OrchestratorTaskSpec, ...]
