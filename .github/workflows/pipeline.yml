@@ -3,6 +3,9 @@ name: Orchestrator pipeline
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   orchestrator-smoke:
     runs-on: ubuntu-latest
@@ -35,6 +38,19 @@ jobs:
         env:
           GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
         run: python -m src.application --config configuration/application/orchestrator.yaml
+
+      - name: Commit and push pipeline outputs to main
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add checkpoints logs
+          if git diff --cached --quiet; then
+            echo "No checkpoint/log changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: update pipeline outputs from run ${GITHUB_RUN_ID}"
+          git push origin HEAD:main
 
       - name: Upload pipeline outputs
         if: always()
