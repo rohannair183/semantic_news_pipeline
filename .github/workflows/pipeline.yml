@@ -35,3 +35,13 @@ jobs:
         env:
           GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
         run: python -m src.application --config configuration/application/orchestrator.yaml
+
+      - name: Upload pipeline outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-outputs-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            checkpoints/**
+            logs/**
