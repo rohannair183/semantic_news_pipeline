@@ -164,49 +164,45 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
 
     def test_sync_writes_batches_under_cap(self) -> None:
         """sync_profile_to_bucket: emits capped batches."""
-
         batches: list[list] = []
-        embedding = [0.0, 1.0, 2.0]
-        df = pd.DataFrame(
-            [
-                {
-                    "source_api_id": "a",
-                    "chunk_index": 0,
-                    "source_row_index": 1,
-                    "source_day": "2026-01-01",
-                    "embedding": embedding,
-                },
-                {
-                    "source_api_id": "b",
-                    "chunk_index": 0,
-                    "source_row_index": 2,
-                    "source_day": "2026-01-02",
-                    "embedding": embedding,
-                },
-                {
-                    "source_api_id": "c",
-                    "chunk_index": 0,
-                    "source_row_index": 3,
-                    "source_day": "2026-01-03",
-                    "embedding": embedding,
-                },
-            ]
-        )
-
         client = self._make_client_mock(batches)
 
         with tempfile.TemporaryDirectory() as tmp:
             parquet_dir = Path(tmp)
-            path = parquet_dir / "myprof.parquet"
-            df.to_parquet(path, index=False)
-            cfg = _cfg(
+            pd.DataFrame(
+                [
+                    {
+                        "source_api_id": "a",
+                        "chunk_index": 0,
+                        "source_row_index": 1,
+                        "source_day": "2026-01-01",
+                        "embedding": [0.0, 1.0, 2.0],
+                    },
+                    {
+                        "source_api_id": "b",
+                        "chunk_index": 0,
+                        "source_row_index": 2,
+                        "source_day": "2026-01-02",
+                        "embedding": [0.0, 1.0, 2.0],
+                    },
+                    {
+                        "source_api_id": "c",
+                        "chunk_index": 0,
+                        "source_row_index": 3,
+                        "source_day": "2026-01-03",
+                        "embedding": [0.0, 1.0, 2.0],
+                    },
+                ]
+            ).to_parquet(parquet_dir / "myprof.parquet", index=False)
+
+            with _patch_sync_config(
+                _cfg(
                 input_dir=parquet_dir,
                 batch_size=2,
                 dimension=3,
                 metadata_columns=("source_day",),
-            )
-
-            with _patch_sync_config(cfg):
+                )
+            ):
                 sync = SupabaseVectorBucketSync(
                     client_factory=_named_client_factory(client),
                     timer=Timer(),
@@ -218,19 +214,19 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             self.assertEqual(len(batches), 2)
             self.assertEqual(len(batches[0]), 2)
             self.assertEqual(len(batches[1]), 1)
-            prefix = "[supabase_vector_sync] uploaded batch"
             batch_messages = [
                 call.args[0]
                 for call in mocked_print.call_args_list
-                if call.args and str(call.args[0]).startswith(prefix)
+                if call.args
+                and str(call.args[0]).startswith(
+                    "[supabase_vector_sync] uploaded batch",
+                )
             ]
             self.assertEqual(len(batch_messages), 2)
             self.assertIn("uploaded batch 1/2", batch_messages[0])
             self.assertIn("uploaded batch 2/2", batch_messages[1])
-            vectors_api = client.storage.vectors.return_value
-            vectors_api.create_bucket.assert_called_once_with("b")
-            bucket_scope = vectors_api.from_.return_value
-            bucket_scope.create_index.assert_called_once()
+            client.storage.vectors.return_value.create_bucket.assert_called_once_with("b")
+            client.storage.vectors.return_value.from_.return_value.create_index.assert_called_once()
 
     def test_raises_when_dimension_mismatch(self) -> None:
         """sync_profile_to_bucket: rejects wrong embedding widths."""
