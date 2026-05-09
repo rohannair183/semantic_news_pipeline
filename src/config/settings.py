@@ -21,6 +21,7 @@ from src.enums.pre_chunk_operation import PreChunkOperation
 from src.enums.sentence_splitter_mode import SentenceSplitterMode
 from src.enums.orchestrator_normalizer_day_token import OrchestratorNormalizerDayToken
 from src.enums.orchestrator_task_kind import OrchestratorTaskKind
+from src.enums.vector_bucket_distance_metric import VectorBucketDistanceMetric
 from src.enums.yaml_config_type import YAMLConfigType
 from src.utils.dates import coerce_day, utc_today_date
 
@@ -80,9 +81,6 @@ class Settings:
     @staticmethod
     def _load_env_file() -> None:
         """Load environment variables from the repository root .env file."""
-        if os.getenv("GUARDIAN_API_KEY"):
-            return
-
         module_path = Path(__file__).resolve()
         env_path = module_path.parents[2] / ".env"
         if not env_path.is_file():
@@ -107,6 +105,22 @@ class Settings:
         ``skip_when.missing_env_var``) so a local `.env` matches ingestion client bootstrap.
         """
         cls._load_env_file()
+
+    @classmethod
+    def load_supabase_credentials(
+        cls,
+        load_dotenv: bool = True,
+    ) -> tuple[str, str]:
+        """Return Supabase URL + service role key from environment."""
+        if load_dotenv:
+            cls._load_env_file()
+        url = os.getenv("SUPABASE_URL")
+        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if not url or not str(url).strip():
+            raise ValueError("SUPABASE_URL is not set or empty")
+        if not service_key or not str(service_key).strip():
+            raise ValueError("SUPABASE_SERVICE_ROLE_KEY is not set or empty")
+        return str(url).strip(), str(service_key).strip()
 
     @classmethod
     def load_ingestion_config(cls) -> Dict[str, Any]:
@@ -420,6 +434,126 @@ class Settings:
         )
 
     @classmethod
+    def load_supabase_vector_sync_config(
+        cls,
+        configuration_root: Optional[Path] = None,
+    ) -> "SupabaseVectorSyncConfig":
+        """Load and validate typed Supabase vector bucket sync configuration."""
+        parser = (
+            YAMLConfigParser()
+            if configuration_root is None
+            else YAMLConfigParser(configuration_root=configuration_root)
+        )
+        raw = parser.parse(
+            config_type=YAMLConfigType.VECTOR_BUCKET,
+            filename="sync.yaml",
+        )
+        section = cls._load_required_section(raw, section_name="supabase_vector_sync")
+        return cls._supabase_vector_sync_from_mapping(section)
+
+    @classmethod
+    def _supabase_vector_sync_from_mapping(  # pylint: disable=too-many-locals
+        cls,
+        section: Dict[str, Any],
+    ) -> "SupabaseVectorSyncConfig":
+        """Parse ``supabase_vector_sync`` YAML mapping into typed config."""
+        input_dir = Path(
+            str(section.get("input_dir", "checkpoints/embeddings"))
+        )
+        bucket_name = cls._load_non_empty_string(
+            section.get("bucket_name"),
+            field_name="supabase_vector_sync.bucket_name",
+        )
+        index_name = cls._load_non_empty_string(
+            section.get("index_name"),
+            field_name="supabase_vector_sync.index_name",
+        )
+        dimension = cls._load_positive_int(
+            section.get("dimension"),
+            field_name="supabase_vector_sync.dimension",
+        )
+        raw_metric = section.get("distance_metric")
+        if raw_metric is None:
+            raise ValueError(
+                "Vector bucket sync config field 'supabase_vector_sync.distance_metric' is required"
+            )
+        try:
+            distance_metric = VectorBucketDistanceMetric.from_value(str(raw_metric).strip())
+        except ValueError as exc:
+            raise ValueError(
+                f"Vector bucket sync field 'supabase_vector_sync.distance_metric': {exc}"
+            ) from exc
+        embedding_column = cls._load_non_empty_string(
+            section.get("embedding_column", "embedding"),
+            field_name="supabase_vector_sync.embedding_column",
+        )
+        raw_key_columns = section.get("key_columns")
+        if raw_key_columns is None:
+            key_columns = (
+                "source_api_id",
+                "chunk_index",
+                "source_row_index",
+            )
+        else:
+            if not isinstance(raw_key_columns, list) or not raw_key_columns:
+                raise ValueError(
+                    "Vector bucket sync field 'supabase_vector_sync.key_columns' must be a "
+                    "non-empty list when provided"
+                )
+            resolved_keys: list[str] = []
+            for index, item in enumerate(raw_key_columns):
+                if not isinstance(item, str) or not item.strip():
+                    raise ValueError(
+                        "Vector bucket sync field "
+                        f"'supabase_vector_sync.key_columns[{index}]' must be a non-empty string"
+                    )
+                resolved_keys.append(str(item).strip())
+            key_columns = tuple(resolved_keys)
+        metadata_columns = tuple(
+            cls._load_optional_string_list(
+                section.get("metadata_columns"),
+                field_name="supabase_vector_sync.metadata_columns",
+            )
+        )
+        batch_size_raw = section.get("batch_size", 500)
+        batch_size = cls._load_positive_int(
+            batch_size_raw,
+            field_name="supabase_vector_sync.batch_size",
+        )
+        batch_cap_msg = (
+            "Vector bucket sync field 'supabase_vector_sync.batch_size' must be <= 500"
+        )
+        if batch_size > 500:
+            raise ValueError(batch_cap_msg)
+        create_bucket = section.get("create_bucket_if_missing", True)
+        if create_bucket is not None and not isinstance(create_bucket, bool):
+            bucket_msg = (
+                "Vector bucket sync field "
+                "'supabase_vector_sync.create_bucket_if_missing' must be a boolean"
+            )
+            raise ValueError(bucket_msg)
+        create_index = section.get("create_index_if_missing", True)
+        if create_index is not None and not isinstance(create_index, bool):
+            index_msg = (
+                "Vector bucket sync field "
+                "'supabase_vector_sync.create_index_if_missing' must be a boolean"
+            )
+            raise ValueError(index_msg)
+        return SupabaseVectorSyncConfig(
+            input_dir=input_dir,
+            bucket_name=bucket_name,
+            index_name=index_name,
+            dimension=dimension,
+            distance_metric=distance_metric,
+            embedding_column=embedding_column,
+            key_columns=key_columns,
+            metadata_columns=metadata_columns,
+            batch_size=batch_size,
+            create_bucket_if_missing=bool(create_bucket),
+            create_index_if_missing=bool(create_index),
+        )
+
+    @classmethod
     def load_orchestrator_config(
         cls,
         configuration_root: Optional[Path] = None,
@@ -548,6 +682,7 @@ class Settings:
         if kind in (
             OrchestratorTaskKind.CHUNKING,
             OrchestratorTaskKind.EMBEDDINGS,
+            OrchestratorTaskKind.SUPABASE_VECTOR_SYNC,
         ):
             allowed = {"profile"}
             unknown = set(raw_params.keys()) - allowed
@@ -1363,6 +1498,23 @@ class EmbeddingConfig:
     provider: EmbeddingProvider
     model_name: str
     batch_size: int
+
+
+@dataclass(frozen=True)
+class SupabaseVectorSyncConfig:  # pylint: disable=too-many-instance-attributes
+    """Typed configuration for embedding parquet uploads to Storage vector buckets."""
+
+    input_dir: Path
+    bucket_name: str
+    index_name: str
+    dimension: int
+    distance_metric: VectorBucketDistanceMetric
+    embedding_column: str
+    key_columns: tuple[str, ...]
+    metadata_columns: tuple[str, ...]
+    batch_size: int
+    create_bucket_if_missing: bool
+    create_index_if_missing: bool
 
 
 @dataclass(frozen=True)

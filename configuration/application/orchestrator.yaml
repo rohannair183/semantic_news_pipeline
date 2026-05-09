@@ -19,3 +19,9 @@ tasks:
     kind: embeddings
     params:
       profile: default
+  - id: supabase_vector_sync
+    kind: supabase_vector_sync
+    skip_when:
+      missing_env_var: SUPABASE_SERVICE_ROLE_KEY
+    params:
+      profile: default

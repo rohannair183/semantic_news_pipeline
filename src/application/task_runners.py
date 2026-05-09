@@ -10,6 +10,7 @@ from src.chunking.chunker import Chunker
 from src.config.settings import OrchestratorTaskSpec
 from src.embeddings.embedder import Embedder
 from src.enums.orchestrator_task_kind import OrchestratorTaskKind
+from src.supabase_vector_sync.bucket_sync import SupabaseVectorBucketSync
 from src.enums.orchestrator_normalizer_day_token import OrchestratorNormalizerDayToken
 from src.ingestion.article_ingestor import ArticleIngestor
 from src.ingestion.article_normalizer import ArticleNormalizer
@@ -73,12 +74,25 @@ def _run_embeddings(
     return embedder.embed_to_parquet(profile=spec.params.profile)
 
 
+def _run_supabase_vector_sync(
+    spec: OrchestratorTaskSpec,
+    configuration_root: Optional[Path],
+    timer: Timer,
+) -> Any:
+    sync_client = SupabaseVectorBucketSync(
+        configuration_root=configuration_root,
+        timer=timer,
+    )
+    return sync_client.sync_profile_to_bucket(profile=spec.params.profile)
+
+
 _DEFAULT_RUNNERS: Dict[OrchestratorTaskKind, OrchestratorRunner] = {
     OrchestratorTaskKind.ARTICLE_INGESTOR: _run_article_ingestor,
     OrchestratorTaskKind.ARTICLE_NORMALIZER: _run_article_normalizer,
     OrchestratorTaskKind.PRE_CHUNK_PREPROCESSOR: _run_pre_chunk_preprocessor,
     OrchestratorTaskKind.CHUNKING: _run_chunking,
     OrchestratorTaskKind.EMBEDDINGS: _run_embeddings,
+    OrchestratorTaskKind.SUPABASE_VECTOR_SYNC: _run_supabase_vector_sync,
 }
 
 

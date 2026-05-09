@@ -9,4 +9,5 @@ class YAMLConfigType(BaseEnum):
     INGESTION = "ingestion"
     CHUNKING = "chunking"
     EMBEDDINGS = "embeddings"
+    VECTOR_BUCKET = "vector_bucket"
     APPLICATION = "application"

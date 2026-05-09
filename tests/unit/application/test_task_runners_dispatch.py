@@ -32,7 +32,7 @@ def _minimal_spec(kind: OrchestratorTaskKind) -> OrchestratorTaskSpec:
 class TestOrchestratorTaskDispatcher(unittest.TestCase):
     """This class tests default orchestrator-backed module dispatch."""
 
-    def test_each_runner_invokes_backing_module(self):
+    def test_each_runner_invokes_backing_module(self):  # pylint: disable=too-many-locals
         """default_task_runner_map: each handler reaches its backing class."""
         mappings = {
             OrchestratorTaskKind.ARTICLE_INGESTOR: "src.application.task_runners.ArticleIngestor",
@@ -44,6 +44,9 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             ),
             OrchestratorTaskKind.CHUNKING: "src.application.task_runners.Chunker",
             OrchestratorTaskKind.EMBEDDINGS: "src.application.task_runners.Embedder",
+            OrchestratorTaskKind.SUPABASE_VECTOR_SYNC: (
+                "src.application.task_runners.SupabaseVectorBucketSync"
+            ),
         }
         timer = Timer()
         runners = default_task_runner_map()
@@ -71,6 +74,13 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             skip_when=None,
             params=OrchestratorTaskParams(profile="y"),
         )
+        sync_spec = OrchestratorTaskSpec(
+            task_id="syn",
+            kind=OrchestratorTaskKind.SUPABASE_VECTOR_SYNC,
+            enabled=True,
+            skip_when=None,
+            params=OrchestratorTaskParams(profile="z"),
+        )
 
         spec_by_kind = {
             OrchestratorTaskKind.ARTICLE_INGESTOR: _minimal_spec(
@@ -82,6 +92,7 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             ),
             OrchestratorTaskKind.CHUNKING: chunk_spec,
             OrchestratorTaskKind.EMBEDDINGS: embed_spec,
+            OrchestratorTaskKind.SUPABASE_VECTOR_SYNC: sync_spec,
         }
 
         for kind, target in mappings.items():
@@ -103,12 +114,18 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
                 elif kind == OrchestratorTaskKind.CHUNKING:
                     ctor.assert_called_once_with(configuration_root=fake_root)
                     mock_instance.chunk_to_parquet.assert_called_once_with(profile="x")
-                else:
+                elif kind == OrchestratorTaskKind.EMBEDDINGS:
                     ctor.assert_called_once_with(
                         configuration_root=fake_root,
                         timer=timer,
                     )
                     mock_instance.embed_to_parquet.assert_called_once_with(profile="y")
+                else:
+                    ctor.assert_called_once_with(
+                        configuration_root=fake_root,
+                        timer=timer,
+                    )
+                    mock_instance.sync_profile_to_bucket.assert_called_once_with(profile="z")
 
 
 if __name__ == "__main__":  # pragma: no cover

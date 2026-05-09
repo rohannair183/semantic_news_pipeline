@@ -1,0 +1,24 @@
+# Sync embedding parquet profiles to a Supabase Storage vector bucket/index.
+# Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY when running this stage.
+#
+# Provision flags call the Storage vectors API once per run where supported;
+# duplicates are swallowed so re-runs stay idempotent. Index dimension must match
+# the embedding model (e.g. 384 for all-MiniLM-L6-v2). Server batch limit is 500.
+supabase_vector_sync:
+  input_dir: checkpoints/embeddings
+  bucket_name: semantic-news-chunks
+  index_name: default-profile
+  dimension: 384
+  distance_metric: cosine
+  embedding_column: embedding
+  key_columns:
+    - source_api_id
+    - chunk_index
+    - source_row_index
+  metadata_columns:
+    - source_day
+    - source_profile
+    - chunking_strategy
+  batch_size: 5
+  create_bucket_if_missing: true
+  create_index_if_missing: true
