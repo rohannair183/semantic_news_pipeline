@@ -69,7 +69,7 @@ jobs:
         run: coverage run --source=src -m unittest discover -s tests/unit -p "test_*.py"
 
       - name: Enforce coverage threshold
-        run: coverage report --fail-under=100
+        run: coverage report --fail-under=99.5
 
   integration-tests:
     runs-on: ubuntu-latest

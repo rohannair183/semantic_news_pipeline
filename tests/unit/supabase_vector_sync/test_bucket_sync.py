@@ -218,10 +218,11 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             self.assertEqual(len(batches), 2)
             self.assertEqual(len(batches[0]), 2)
             self.assertEqual(len(batches[1]), 1)
+            prefix = "[supabase_vector_sync] uploaded batch"
             batch_messages = [
                 call.args[0]
                 for call in mocked_print.call_args_list
-                if call.args and str(call.args[0]).startswith("[supabase_vector_sync] uploaded batch")
+                if call.args and str(call.args[0]).startswith(prefix)
             ]
             self.assertEqual(len(batch_messages), 2)
             self.assertIn("uploaded batch 1/2", batch_messages[0])
