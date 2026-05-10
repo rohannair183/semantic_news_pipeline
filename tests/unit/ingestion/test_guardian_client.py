@@ -231,6 +231,45 @@ class TestGuardianClientRequestJson(GuardianClientTestCase):
             status_code=None,
         )
 
+    def test_request_json_retries_transient_failures(self):
+        """_request_json: retries transient Guardian failures before succeeding."""
+        client = GuardianClient(usage_logger=Mock())
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.status_code = 200
+        response.json.return_value = {"response": {"status": "ok"}}
+
+        with patch.object(client, "_throttle"), patch(
+            "src.ingestion.guardian_client.requests.get",
+            side_effect=[requests.Timeout("slow"), response],
+        ) as mock_get:
+            payload = getattr(client, "_request_json")("/search")
+
+        self.assertEqual(payload["response"]["status"], "ok")
+        self.assertEqual(mock_get.call_count, 2)
+
+    def test_request_json_does_not_retry_non_retryable_http_status(self):
+        """_request_json: does not retry deterministic client HTTP errors."""
+        client = GuardianClient(usage_logger=Mock())
+        http_response = Mock()
+        http_response.status_code = 400
+        http_response.text = "detail"
+        http_err = requests.HTTPError("bad request", response=http_response)
+        response = Mock()
+        response.raise_for_status.side_effect = http_err
+
+        with patch.object(client, "_throttle"), patch(
+            "src.ingestion.guardian_client.time.sleep"
+        ) as mock_sleep, patch(
+            "src.ingestion.guardian_client.requests.get",
+            return_value=response,
+        ) as mock_get:
+            with self.assertRaises(RuntimeError):
+                getattr(client, "_request_json")("/search")
+
+        self.assertEqual(mock_get.call_count, 1)
+        mock_sleep.assert_not_called()
+
 
 class TestGuardianClientExtractResponseOrRaise(GuardianClientTestCase):
     """This class tests _extract_response_or_raise."""

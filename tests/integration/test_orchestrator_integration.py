@@ -19,11 +19,11 @@ def _noop_runner(_spec, _root, _timer):
 class TestOrchestratorRepoYaml(unittest.TestCase):
     """This class tests repository orchestrator presets."""
 
-    def test_orchestrator_ci_yaml_loads_under_application_dir(self):
+    def test_orchestrator_ci_yaml_loads_under_orchestration_dir(self):
         """load_orchestrator_config_from_path: accepts CI YAML on disk."""
 
         repo_root = Path(__file__).resolve().parents[2]
-        path = repo_root / "configuration" / "application" / "orchestrator_ci.yaml"
+        path = repo_root / "configuration" / "orchestration" / "orchestrator_ci.yaml"
         config = Settings.load_orchestrator_config_from_path(path)
 
         noop_map = {kind: _noop_runner for kind in OrchestratorTaskKind}
@@ -38,7 +38,7 @@ class TestOrchestratorRepoYaml(unittest.TestCase):
     def test_orchestrator_ci_yaml_runs_with_default_runners(self):
         """Orchestrator.run: executes CI YAML stages with real registered runners."""
         repo_root = Path(__file__).resolve().parents[2]
-        path = repo_root / "configuration" / "application" / "orchestrator_ci.yaml"
+        path = repo_root / "configuration" / "orchestration" / "orchestrator_ci.yaml"
         config = Settings.load_orchestrator_config_from_path(path)
         summary = Orchestrator(config).run()
 
@@ -52,9 +52,9 @@ class TestOrchestratorRepoYaml(unittest.TestCase):
 
         with TemporaryDirectory() as tmp:
             cfg_root = Path(tmp)
-            app_dir = cfg_root / "application"
-            app_dir.mkdir(parents=True)
-            orch_path = app_dir / "orchestrator.yaml"
+            orchestration_dir = cfg_root / "orchestration"
+            orchestration_dir.mkdir(parents=True)
+            orch_path = orchestration_dir / "orchestrator.yaml"
             orch_path.write_text(
                 "fail_fast: true\n"
                 "tasks:\n"

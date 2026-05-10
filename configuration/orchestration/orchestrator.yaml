@@ -1,9 +1,10 @@
-# CI-safe preset: skips Guardian API ingestion and heavyweight embeddings unless extras/secrets wired.
+# Full local smoke pipeline order (mirror root smoke scripts).
 fail_fast: true
 tasks:
   - id: article_ingestor
     kind: article_ingestor
-    enabled: false
+    skip_when:
+      missing_env_var: GUARDIAN_API_KEY
   - id: article_normalizer
     kind: article_normalizer
     params:
@@ -16,11 +17,11 @@ tasks:
       profile: default
   - id: embeddings
     kind: embeddings
-    enabled: false
     params:
       profile: default
-  - id: supabase_vector_sync
-    kind: supabase_vector_sync
-    enabled: false
+  - id: vector_sync
+    kind: vector_sync
+    skip_when:
+      missing_env_var: SUPABASE_SERVICE_ROLE_KEY
     params:
       profile: default

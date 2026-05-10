@@ -10,4 +10,4 @@ class YAMLConfigType(BaseEnum):
     CHUNKING = "chunking"
     EMBEDDINGS = "embeddings"
     VECTOR_BUCKET = "vector_bucket"
-    APPLICATION = "application"
+    ORCHESTRATION = "orchestration"

@@ -40,10 +40,10 @@ class TestYAMLConfigType(unittest.TestCase):
         self.assertEqual(YAMLConfigType.INGESTION.value, "ingestion")
         self.assertEqual(YAMLConfigType.from_value("ingestion"), YAMLConfigType.INGESTION)
 
-    def test_application_value(self):
-        """YAMLConfigType: exposes application orchestrator YAML group."""
-        self.assertEqual(YAMLConfigType.APPLICATION.value, "application")
-        self.assertEqual(YAMLConfigType.from_value("application"), YAMLConfigType.APPLICATION)
+    def test_orchestration_value(self):
+        """YAMLConfigType: exposes orchestrator YAML directory name."""
+        self.assertEqual(YAMLConfigType.ORCHESTRATION.value, "orchestration")
+        self.assertEqual(YAMLConfigType.from_value("orchestration"), YAMLConfigType.ORCHESTRATION)
 
 
 if __name__ == "__main__":  # pragma: no cover

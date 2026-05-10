@@ -139,9 +139,9 @@ class TestOrchestratorConfigValidationErrors(unittest.TestCase):
             Settings._parse_orchestrator_config_mapping(raw)  # pylint: disable=protected-access
         self.assertIn("unknown keys", str(raised.exception))
 
-    def test_supabase_vector_sync_rejects_unknown_keys(self):
+    def test_vector_sync_rejects_unknown_keys(self):
         """_parse_orchestrator_task_params: sync task rejects stray params."""
-        raw = {"tasks": [{"kind": "supabase_vector_sync", "params": {"oops": True}}]}
+        raw = {"tasks": [{"kind": "vector_sync", "params": {"oops": True}}]}
         with self.assertRaises(ValueError) as raised:
             Settings._parse_orchestrator_config_mapping(raw)  # pylint: disable=protected-access
         self.assertIn("unknown keys", str(raised.exception))

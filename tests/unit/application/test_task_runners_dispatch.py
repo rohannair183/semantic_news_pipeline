@@ -44,8 +44,8 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             ),
             OrchestratorTaskKind.CHUNKING: "src.application.task_runners.Chunker",
             OrchestratorTaskKind.EMBEDDINGS: "src.application.task_runners.Embedder",
-            OrchestratorTaskKind.SUPABASE_VECTOR_SYNC: (
-                "src.application.task_runners.SupabaseVectorBucketSync"
+            OrchestratorTaskKind.VECTOR_SYNC: (
+                "src.application.task_runners.VectorBucketSync"
             ),
         }
         timer = Timer()
@@ -76,7 +76,7 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
         )
         sync_spec = OrchestratorTaskSpec(
             task_id="syn",
-            kind=OrchestratorTaskKind.SUPABASE_VECTOR_SYNC,
+            kind=OrchestratorTaskKind.VECTOR_SYNC,
             enabled=True,
             skip_when=None,
             params=OrchestratorTaskParams(profile="z"),
@@ -92,7 +92,7 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             ),
             OrchestratorTaskKind.CHUNKING: chunk_spec,
             OrchestratorTaskKind.EMBEDDINGS: embed_spec,
-            OrchestratorTaskKind.SUPABASE_VECTOR_SYNC: sync_spec,
+            OrchestratorTaskKind.VECTOR_SYNC: sync_spec,
         }
 
         for kind, target in mappings.items():

@@ -434,11 +434,11 @@ class Settings:
         )
 
     @classmethod
-    def load_supabase_vector_sync_config(
+    def load_vector_sync_config(
         cls,
         configuration_root: Optional[Path] = None,
-    ) -> "SupabaseVectorSyncConfig":
-        """Load and validate typed Supabase vector bucket sync configuration."""
+    ) -> "VectorSyncConfig":
+        """Load and validate typed vector bucket sync configuration."""
         parser = (
             YAMLConfigParser()
             if configuration_root is None
@@ -448,44 +448,44 @@ class Settings:
             config_type=YAMLConfigType.VECTOR_BUCKET,
             filename="sync.yaml",
         )
-        section = cls._load_required_section(raw, section_name="supabase_vector_sync")
-        return cls._supabase_vector_sync_from_mapping(section)
+        section = cls._load_required_section(raw, section_name="vector_sync")
+        return cls._vector_sync_from_mapping(section)
 
     @classmethod
-    def _supabase_vector_sync_from_mapping(  # pylint: disable=too-many-locals
+    def _vector_sync_from_mapping(  # pylint: disable=too-many-locals
         cls,
         section: Dict[str, Any],
-    ) -> "SupabaseVectorSyncConfig":
-        """Parse ``supabase_vector_sync`` YAML mapping into typed config."""
+    ) -> "VectorSyncConfig":
+        """Parse ``vector_sync`` YAML mapping into typed config."""
         input_dir = Path(
             str(section.get("input_dir", "checkpoints/embeddings"))
         )
         bucket_name = cls._load_non_empty_string(
             section.get("bucket_name"),
-            field_name="supabase_vector_sync.bucket_name",
+            field_name="vector_sync.bucket_name",
         )
         index_name = cls._load_non_empty_string(
             section.get("index_name"),
-            field_name="supabase_vector_sync.index_name",
+            field_name="vector_sync.index_name",
         )
         dimension = cls._load_positive_int(
             section.get("dimension"),
-            field_name="supabase_vector_sync.dimension",
+            field_name="vector_sync.dimension",
         )
         raw_metric = section.get("distance_metric")
         if raw_metric is None:
             raise ValueError(
-                "Vector bucket sync config field 'supabase_vector_sync.distance_metric' is required"
+                "Vector bucket sync config field 'vector_sync.distance_metric' is required"
             )
         try:
             distance_metric = VectorBucketDistanceMetric.from_value(str(raw_metric).strip())
         except ValueError as exc:
             raise ValueError(
-                f"Vector bucket sync field 'supabase_vector_sync.distance_metric': {exc}"
+                f"Vector bucket sync field 'vector_sync.distance_metric': {exc}"
             ) from exc
         embedding_column = cls._load_non_empty_string(
             section.get("embedding_column", "embedding"),
-            field_name="supabase_vector_sync.embedding_column",
+            field_name="vector_sync.embedding_column",
         )
         raw_key_columns = section.get("key_columns")
         if raw_key_columns is None:
@@ -497,7 +497,7 @@ class Settings:
         else:
             if not isinstance(raw_key_columns, list) or not raw_key_columns:
                 raise ValueError(
-                    "Vector bucket sync field 'supabase_vector_sync.key_columns' must be a "
+                    "Vector bucket sync field 'vector_sync.key_columns' must be a "
                     "non-empty list when provided"
                 )
             resolved_keys: list[str] = []
@@ -505,23 +505,23 @@ class Settings:
                 if not isinstance(item, str) or not item.strip():
                     raise ValueError(
                         "Vector bucket sync field "
-                        f"'supabase_vector_sync.key_columns[{index}]' must be a non-empty string"
+                        f"'vector_sync.key_columns[{index}]' must be a non-empty string"
                     )
                 resolved_keys.append(str(item).strip())
             key_columns = tuple(resolved_keys)
         metadata_columns = tuple(
             cls._load_optional_string_list(
                 section.get("metadata_columns"),
-                field_name="supabase_vector_sync.metadata_columns",
+                field_name="vector_sync.metadata_columns",
             )
         )
         batch_size_raw = section.get("batch_size", 500)
         batch_size = cls._load_positive_int(
             batch_size_raw,
-            field_name="supabase_vector_sync.batch_size",
+            field_name="vector_sync.batch_size",
         )
         batch_cap_msg = (
-            "Vector bucket sync field 'supabase_vector_sync.batch_size' must be <= 500"
+            "Vector bucket sync field 'vector_sync.batch_size' must be <= 500"
         )
         if batch_size > 500:
             raise ValueError(batch_cap_msg)
@@ -529,17 +529,17 @@ class Settings:
         if create_bucket is not None and not isinstance(create_bucket, bool):
             bucket_msg = (
                 "Vector bucket sync field "
-                "'supabase_vector_sync.create_bucket_if_missing' must be a boolean"
+                "'vector_sync.create_bucket_if_missing' must be a boolean"
             )
             raise ValueError(bucket_msg)
         create_index = section.get("create_index_if_missing", True)
         if create_index is not None and not isinstance(create_index, bool):
             index_msg = (
                 "Vector bucket sync field "
-                "'supabase_vector_sync.create_index_if_missing' must be a boolean"
+                "'vector_sync.create_index_if_missing' must be a boolean"
             )
             raise ValueError(index_msg)
-        return SupabaseVectorSyncConfig(
+        return VectorSyncConfig(
             input_dir=input_dir,
             bucket_name=bucket_name,
             index_name=index_name,
@@ -566,7 +566,7 @@ class Settings:
             else YAMLConfigParser(configuration_root=configuration_root)
         )
         raw = parser.parse(
-            config_type=YAMLConfigType.APPLICATION,
+            config_type=YAMLConfigType.ORCHESTRATION,
             filename=filename,
         )
         return cls._parse_orchestrator_config_mapping(raw)
@@ -682,7 +682,7 @@ class Settings:
         if kind in (
             OrchestratorTaskKind.CHUNKING,
             OrchestratorTaskKind.EMBEDDINGS,
-            OrchestratorTaskKind.SUPABASE_VECTOR_SYNC,
+            OrchestratorTaskKind.VECTOR_SYNC,
         ):
             allowed = {"profile"}
             unknown = set(raw_params.keys()) - allowed
@@ -1501,7 +1501,7 @@ class EmbeddingConfig:
 
 
 @dataclass(frozen=True)
-class SupabaseVectorSyncConfig:  # pylint: disable=too-many-instance-attributes
+class VectorSyncConfig:  # pylint: disable=too-many-instance-attributes
     """Typed configuration for embedding parquet uploads to Storage vector buckets."""
 
     input_dir: Path

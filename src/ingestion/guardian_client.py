@@ -17,6 +17,7 @@ from src.config.settings import GuardianProfileConfig, Settings
 from src.enums.guardian_use_date import GuardianUseDate
 from src.ingestion.ingestion_logger import IngestionLogger
 from src.utils.dates import format_day_iso
+from src.utils.retry import retry_with_exponential_backoff
 
 
 @dataclass
@@ -112,6 +113,20 @@ class GuardianClient:
         """
         return self._settings.timeout_seconds
 
+    @staticmethod
+    def _is_retryable_request_exception(exc: BaseException) -> bool:
+        """Return True for transient Guardian API failures worth retrying."""
+        if isinstance(exc, requests.Timeout):
+            return True
+        if isinstance(exc, requests.ConnectionError):
+            return True
+        if isinstance(exc, requests.HTTPError):
+            response = exc.response
+            if response is None:
+                return True
+            return response.status_code in {408, 429} or response.status_code >= 500
+        return False
+
     def _get_profile_request(self, profile: str) -> GuardianProfileConfig:
         """Return a configured request profile or raise a helpful error.
 
@@ -189,13 +204,19 @@ class GuardianClient:
         Returns:
             Dict[str, Any]: Parsed JSON payload returned by the API.
         """
-        self._throttle()
         url = f"{self.base_url}{path}"
         try:
-            response = requests.get(
-                url=url,
-                params=params or {},
-                timeout=self.timeout_seconds,
+            def request_operation() -> requests.Response:
+                self._throttle()
+                return requests.get(
+                    url=url,
+                    params=params or {},
+                    timeout=self.timeout_seconds,
+                )
+
+            response = retry_with_exponential_backoff(
+                request_operation,
+                is_retryable=self._is_retryable_request_exception,
             )
             response.raise_for_status()
             self._usage_logger.log_api_call(

@@ -12,15 +12,16 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 from storage3.exceptions import StorageApiError
 
-from src.config.settings import SupabaseVectorSyncConfig
+from src.config.settings import VectorSyncConfig
 from src.enums.vector_bucket_distance_metric import VectorBucketDistanceMetric
-from src.supabase_vector_sync import bucket_sync as bucket_sync_module
-from src.supabase_vector_sync.bucket_sync import (
-    SupabaseVectorBucketSync,
+from src.vector_sync import bucket_sync as bucket_sync_module
+from src.vector_sync.bucket_sync import (
+    VectorBucketSync,
     _build_metadata,
     _coerce_leaf_metadata,
     _default_supabase_client_factory,
     _embedding_to_float_vector,
+    _is_retryable_supabase_api_exception,
     _looks_like_duplicate_resource,
     _run_idempotent_create,
     _stable_row_key,
@@ -28,11 +29,11 @@ from src.supabase_vector_sync.bucket_sync import (
 from src.utils.timer import Timer
 
 
-def _patch_sync_config(return_value: SupabaseVectorSyncConfig):
+def _patch_sync_config(return_value: VectorSyncConfig):
     """Patch Settings vector sync YAML loader."""
     return patch.object(
         bucket_sync_module.Settings,
-        "load_supabase_vector_sync_config",
+        "load_vector_sync_config",
         return_value=return_value,
     )
 
@@ -46,7 +47,7 @@ def _named_client_factory(client: MagicMock):
     return factory
 
 
-def _cfg(**kwargs: Any) -> SupabaseVectorSyncConfig:
+def _cfg(**kwargs: Any) -> VectorSyncConfig:
     merged: dict[str, Any] = {
         "input_dir": Path("/tmp/embed"),
         "bucket_name": "b",
@@ -61,7 +62,7 @@ def _cfg(**kwargs: Any) -> SupabaseVectorSyncConfig:
         "create_index_if_missing": True,
     }
     merged.update(kwargs)
-    return SupabaseVectorSyncConfig(**merged)
+    return VectorSyncConfig(**merged)
 
 
 class TestLooksLikeDuplicateResource(unittest.TestCase):
@@ -119,17 +120,52 @@ class TestRunIdempotentCreate(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             _run_idempotent_create(boom)
 
+    def test_retries_transient_storage_errors(self) -> None:
+        """_run_idempotent_create: retries transient Storage errors before success."""
+        operation = MagicMock(
+            side_effect=[
+                StorageApiError("rate limited", "TooManyRequests", "429"),
+                None,
+            ]
+        )
 
-class TestSupabaseVectorBucketSync(unittest.TestCase):
-    """This class tests SupabaseVectorBucketSync."""
+        _run_idempotent_create(operation)
+
+        self.assertEqual(operation.call_count, 2)
+
+
+class TestSupabaseRetryClassifier(unittest.TestCase):
+    """This class tests _is_retryable_supabase_api_exception."""
+
+    def test_storage_status_codes(self) -> None:
+        """_is_retryable_supabase_api_exception: retries transient status codes."""
+        self.assertTrue(
+            _is_retryable_supabase_api_exception(
+                StorageApiError("down", "ServiceUnavailable", "503"),
+            )
+        )
+        self.assertFalse(
+            _is_retryable_supabase_api_exception(
+                StorageApiError("bad request", "BadRequest", "400"),
+            )
+        )
+
+    def test_generic_errors(self) -> None:
+        """_is_retryable_supabase_api_exception: retries transport failures only."""
+        self.assertTrue(_is_retryable_supabase_api_exception(ConnectionError("offline")))
+        self.assertFalse(_is_retryable_supabase_api_exception(ValueError("bad")))
+
+
+class TestVectorBucketSync(unittest.TestCase):
+    """This class tests VectorBucketSync."""
 
     def test_timer_property(self) -> None:
-        """SupabaseVectorBucketSync.timer: echoes injected timer."""
+        """VectorBucketSync.timer: echoes injected timer."""
         timer = Timer()
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _cfg(input_dir=Path(tmp))
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(
+                sync = VectorBucketSync(
                     timer=timer,
                     client_factory=_named_client_factory(MagicMock()),
                 )
@@ -140,7 +176,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _cfg(input_dir=Path(tmp))
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(client_factory=MagicMock, timer=Timer())
+                sync = VectorBucketSync(client_factory=MagicMock, timer=Timer())
                 with self.assertRaises(FileNotFoundError):
                     sync.sync_profile_to_bucket(profile="missing")
 
@@ -203,7 +239,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
                 metadata_columns=("source_day",),
                 )
             ):
-                sync = SupabaseVectorBucketSync(
+                sync = VectorBucketSync(
                     client_factory=_named_client_factory(client),
                     timer=Timer(),
                 )
@@ -219,7 +255,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
                 for call in mocked_print.call_args_list
                 if call.args
                 and str(call.args[0]).startswith(
-                    "[supabase_vector_sync] uploaded batch",
+                    "[vector_sync] uploaded batch",
                 )
             ]
             self.assertEqual(len(batch_messages), 2)
@@ -248,7 +284,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             batches: list = []
             client = self._make_client_mock(batches)
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(
+                sync = VectorBucketSync(
                     client_factory=_named_client_factory(client),
                     timer=Timer(),
                 )
@@ -275,7 +311,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             cfg = _cfg(input_dir=parquet_dir)
             client = self._make_client_mock([])
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(
+                sync = VectorBucketSync(
                     client_factory=_named_client_factory(client),
                     timer=Timer(),
                 )
@@ -307,7 +343,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             batches: list = []
             client = self._make_client_mock(batches)
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(
+                sync = VectorBucketSync(
                     client_factory=_named_client_factory(client),
                     timer=Timer(),
                 )
@@ -341,7 +377,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             empty.to_parquet(parquet_dir / "p.parquet", index=False)
             cfg = _cfg(input_dir=parquet_dir, metadata_columns=("source_day",))
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(client_factory=factory, timer=Timer())
+                sync = VectorBucketSync(client_factory=factory, timer=Timer())
                 result = sync.sync_profile_to_bucket(profile="p")
         self.assertEqual(result, {})
         self.assertFalse(sentinels["called"])
@@ -367,7 +403,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             ).to_parquet(parquet_dir / "p.parquet", index=False)
             cfg = _cfg(input_dir=parquet_dir, metadata_columns=("source_day",))
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(client_factory=factory, timer=Timer())
+                sync = VectorBucketSync(client_factory=factory, timer=Timer())
                 with self.assertRaises(ValueError) as ctx:
                     sync.sync_profile_to_bucket(profile="p")
                 self.assertIn("embedding", str(ctx.exception))
@@ -393,7 +429,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             ).to_parquet(parquet_dir / "p.parquet", index=False)
             cfg = _cfg(input_dir=parquet_dir, dimension=1, metadata_columns=("source_day",))
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(client_factory=factory, timer=Timer())
+                sync = VectorBucketSync(client_factory=factory, timer=Timer())
                 with self.assertRaises(ValueError) as ctx:
                     sync.sync_profile_to_bucket(profile="p")
                 self.assertIn("metadata", str(ctx.exception))
@@ -419,7 +455,7 @@ class TestSupabaseVectorBucketSync(unittest.TestCase):
             ).to_parquet(parquet_dir / "p.parquet", index=False)
             cfg = _cfg(input_dir=parquet_dir)
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(client_factory=factory, timer=Timer())
+                sync = VectorBucketSync(client_factory=factory, timer=Timer())
                 with self.assertRaises(ValueError) as ctx:
                     sync.sync_profile_to_bucket(profile="p")
                 self.assertIn("source_api_id", str(ctx.exception))
@@ -581,15 +617,15 @@ class TestBucketSyncTimers(unittest.TestCase):
 
             timer = Timer()
             with _patch_sync_config(cfg):
-                sync = SupabaseVectorBucketSync(
+                sync = VectorBucketSync(
                     client_factory=_named_client_factory(client),
                     timer=timer,
                 )
                 sync.sync_profile_to_bucket(profile="p")
 
             labels = [record[0] for record in timer.records]
-            self.assertIn("supabase_vector_sync.read_parquet", labels)
-            self.assertIn("supabase_vector_sync.put_vectors", labels)
+            self.assertIn("vector_sync.read_parquet", labels)
+            self.assertIn("vector_sync.put_vectors", labels)
 
 
 if __name__ == "__main__":  # pragma: no cover

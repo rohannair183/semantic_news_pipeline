@@ -117,10 +117,10 @@ tasks:
         config = Settings.load_orchestrator_config_from_path(path)
         self.assertEqual(config.tasks[0].params.profile, "custom")
 
-    def test_load_orchestrator_config_application_dir(self):
-        """load_orchestrator_config: reads default application YAML when present."""
+    def test_load_orchestrator_config_orchestration_dir(self):
+        """load_orchestrator_config: reads default orchestration YAML when present."""
         parser = YAMLConfigParser()
-        path = parser.get_config_path(YAMLConfigType.APPLICATION, "orchestrator.yaml")
+        path = parser.get_config_path(YAMLConfigType.ORCHESTRATION, "orchestrator.yaml")
         if not path.is_file():
             self.skipTest("repository orchestrator.yaml not present")
         config = Settings.load_orchestrator_config()

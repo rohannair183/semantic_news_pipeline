@@ -14,6 +14,7 @@ from storage3.types import VectorData, VectorObject
 
 from src.config.settings import Settings
 from src.enums.vector_bucket_distance_metric import VectorBucketDistanceMetric
+from src.utils.retry import retry_with_exponential_backoff
 from src.utils.timer import Timer
 
 MetadataScalar = Union[str, bool, float]
@@ -59,7 +60,10 @@ def _looks_like_duplicate_resource(exc: BaseException) -> bool:
 def _run_idempotent_create(operation: Callable[[], None]) -> None:
     """Run a create call; tolerate duplicate-resource Storage errors."""
     try:
-        operation()
+        retry_with_exponential_backoff(
+            operation,
+            is_retryable=_is_retryable_supabase_api_exception,
+        )
     except StorageApiError as exc:
         if _looks_like_duplicate_resource(exc):
             return
@@ -69,6 +73,21 @@ def _run_idempotent_create(operation: Callable[[], None]) -> None:
         if _looks_like_duplicate_resource(exc):
             return
         raise
+
+
+def _is_retryable_supabase_api_exception(exc: BaseException) -> bool:
+    """Return True when a Supabase Storage API failure is transient."""
+    if isinstance(exc, StorageApiError):
+        try:
+            status_code = int(str(exc.status))
+        except (TypeError, ValueError):
+            status_code = None
+        if status_code is None:
+            return "timeout" in str(exc).lower() or "rate limit" in str(exc).lower()
+        return status_code in {408, 429} or status_code >= 500
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    return False
 
 
 def _coerce_leaf_metadata(raw: Any) -> Optional[MetadataScalar]:
@@ -137,7 +156,7 @@ def _stable_row_key(series: pd.Series, columns: Sequence[str]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-class SupabaseVectorBucketSync:
+class VectorBucketSync:
     """Upload rows from embedding parquet profiles into Storage vector indexes."""
 
     def __init__(
@@ -148,7 +167,7 @@ class SupabaseVectorBucketSync:
         client_factory: SupabaseClientFactory = _default_supabase_client_factory,
     ) -> None:
         self._timer = timer or Timer()
-        self._config = Settings.load_supabase_vector_sync_config(
+        self._config = Settings.load_vector_sync_config(
             configuration_root=configuration_root,
         )
         self._client_factory = client_factory
@@ -197,13 +216,16 @@ class SupabaseVectorBucketSync:
         uploaded = 0
         stride = min(self._config.batch_size, 500)
         total_batches = (len(payloads) + stride - 1) // stride
-        with self._timer.section("supabase_vector_sync.put_vectors"):
+        with self._timer.section("vector_sync.put_vectors"):
             for batch_number, offset in enumerate(range(0, len(payloads), stride), start=1):
                 batch = payloads[offset : offset + stride]
-                vector_index.put(batch)
+                retry_with_exponential_backoff(
+                    lambda: vector_index.put(batch),
+                    is_retryable=_is_retryable_supabase_api_exception,
+                )
                 uploaded += len(batch)
                 print(
-                    "[supabase_vector_sync] "
+                    "[vector_sync] "
                     f"uploaded batch {batch_number}/{total_batches} "
                     f"(batch_size={len(batch)}, total_uploaded={uploaded})"
                 )
@@ -285,14 +307,14 @@ class SupabaseVectorBucketSync:
                 f"Embedding parquet not found for profile '{profile}': {parquet_path}"
             )
 
-        with self._timer.section("supabase_vector_sync.read_parquet"):
+        with self._timer.section("vector_sync.read_parquet"):
             frame = pd.read_parquet(parquet_path)
 
         framed_ready = self._prepare_vector_upload_frame(frame)
         if framed_ready is None:
             return {}
 
-        with self._timer.section("supabase_vector_sync.provision"):
+        with self._timer.section("vector_sync.provision"):
             client = self._client_factory()
             self._ensure_bucket_and_index(client)
 

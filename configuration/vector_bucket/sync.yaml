@@ -4,7 +4,7 @@
 # Provision flags call the Storage vectors API once per run where supported;
 # duplicates are swallowed so re-runs stay idempotent. Index dimension must match
 # the embedding model (e.g. 384 for all-MiniLM-L6-v2). Server batch limit is 500.
-supabase_vector_sync:
+vector_sync:
   input_dir: checkpoints/embeddings
   bucket_name: semantic-news-chunks
   index_name: default-profile
@@ -19,6 +19,6 @@ supabase_vector_sync:
     - source_day
     - source_profile
     - chunking_strategy
-  batch_size: 5
+  batch_size: 200
   create_bucket_if_missing: true
   create_index_if_missing: true

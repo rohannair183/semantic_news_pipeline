@@ -11,4 +11,4 @@ class OrchestratorTaskKind(BaseEnum):
     PRE_CHUNK_PREPROCESSOR = "pre_chunk_preprocessor"
     CHUNKING = "chunking"
     EMBEDDINGS = "embeddings"
-    SUPABASE_VECTOR_SYNC = "supabase_vector_sync"
+    VECTOR_SYNC = "vector_sync"

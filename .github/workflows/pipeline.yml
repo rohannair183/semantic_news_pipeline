@@ -37,7 +37,7 @@ jobs:
       - name: Run YAML orchestrator (full preset)
         env:
           GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
-        run: python -m src.application --config configuration/application/orchestrator.yaml
+        run: python -m src.application --config configuration/orchestration/orchestrator.yaml
 
       - name: Commit and push pipeline outputs to main
         if: success()

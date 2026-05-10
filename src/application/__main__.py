@@ -10,8 +10,8 @@ from src.application.orchestrator import Orchestrator
 from src.config.settings import Settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_ORCHESTRATOR_PATH = REPO_ROOT / "configuration" / "application" / "orchestrator.yaml"
-TEST_ORCHESTRATOR_PATH = REPO_ROOT / "configuration" / "application" / "orchestrator_ci.yaml"
+DEFAULT_ORCHESTRATOR_PATH = REPO_ROOT / "configuration" / "orchestration" / "orchestrator.yaml"
+TEST_ORCHESTRATOR_PATH = REPO_ROOT / "configuration" / "orchestration" / "orchestrator_ci.yaml"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:

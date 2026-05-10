@@ -1,10 +1,10 @@
-"""Unit tests for Settings.load_supabase_vector_sync_config."""
+"""Unit tests for Settings.load_vector_sync_config."""
 
 import tempfile
 import unittest
 from pathlib import Path
 
-from src.config.settings import Settings, SupabaseVectorSyncConfig
+from src.config.settings import Settings, VectorSyncConfig
 from src.enums.vector_bucket_distance_metric import VectorBucketDistanceMetric
 
 
@@ -18,7 +18,7 @@ def _write_sync_yaml(config_root: Path, content: str) -> Path:
 
 
 _VALID_YAML = """\
-supabase_vector_sync:
+vector_sync:
   input_dir: checkpoints/embeddings
   bucket_name: b1
   index_name: i1
@@ -33,17 +33,17 @@ supabase_vector_sync:
 """
 
 
-class TestLoadSupabaseVectorSyncConfigHappyPath(unittest.TestCase):
-    """This class tests load_supabase_vector_sync_config."""
+class TestLoadVectorSyncConfigHappyPath(unittest.TestCase):
+    """This class tests load_vector_sync_config."""
 
     def test_load_returns_typed_config(self) -> None:
-        """load_supabase_vector_sync_config: returns typed config."""
+        """load_vector_sync_config: returns typed config."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _write_sync_yaml(root, _VALID_YAML)
-            cfg = Settings.load_supabase_vector_sync_config(configuration_root=root)
+            cfg = Settings.load_vector_sync_config(configuration_root=root)
 
-        self.assertIsInstance(cfg, SupabaseVectorSyncConfig)
+        self.assertIsInstance(cfg, VectorSyncConfig)
         self.assertEqual(cfg.input_dir, Path("checkpoints/embeddings"))
         self.assertEqual(cfg.bucket_name, "b1")
         self.assertEqual(cfg.index_name, "i1")
@@ -57,9 +57,9 @@ class TestLoadSupabaseVectorSyncConfigHappyPath(unittest.TestCase):
         self.assertFalse(cfg.create_index_if_missing)
 
     def test_default_key_columns_when_omitted(self) -> None:
-        """load_supabase_vector_sync_config: fills default key_columns."""
+        """load_vector_sync_config: fills default key_columns."""
         yaml = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 2
@@ -70,20 +70,20 @@ supabase_vector_sync:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _write_sync_yaml(root, yaml)
-            cfg = Settings.load_supabase_vector_sync_config(configuration_root=root)
+            cfg = Settings.load_vector_sync_config(configuration_root=root)
         self.assertEqual(
             cfg.key_columns,
             ("source_api_id", "chunk_index", "source_row_index"),
         )
 
 
-class TestLoadSupabaseVectorSyncExplicitKeys(unittest.TestCase):
+class TestLoadVectorSyncExplicitKeys(unittest.TestCase):
     """This class tests explicit key_columns parsing."""
 
     def test_custom_key_columns_parsed(self) -> None:
-        """load_supabase_vector_sync_config: honors explicit key columns."""
+        """load_vector_sync_config: honors explicit key columns."""
         yaml = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 1
@@ -96,38 +96,38 @@ supabase_vector_sync:
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _write_sync_yaml(root, yaml)
-            cfg = Settings.load_supabase_vector_sync_config(configuration_root=root)
+            cfg = Settings.load_vector_sync_config(configuration_root=root)
 
         self.assertEqual(cfg.distance_metric, VectorBucketDistanceMetric.L2)
         self.assertEqual(cfg.key_columns, ("x", "y"))
 
 
-class TestLoadSupabaseVectorSyncConfigErrors(unittest.TestCase):
-    """This class tests load_supabase_vector_sync_config errors."""
+class TestLoadVectorSyncConfigErrors(unittest.TestCase):
+    """This class tests load_vector_sync_config errors."""
 
     def test_raises_when_section_missing(self) -> None:
-        """load_supabase_vector_sync_config: requires supabase_vector_sync."""
+        """load_vector_sync_config: requires vector_sync."""
         minimal = """other: {}\n"""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             _write_sync_yaml(root, minimal)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
-            self.assertIn("supabase_vector_sync", str(ctx.exception))
+                Settings.load_vector_sync_config(configuration_root=root)
+            self.assertIn("vector_sync", str(ctx.exception))
 
     def test_raises_when_file_missing(self) -> None:
-        """load_supabase_vector_sync_config: requires sync.yaml."""
+        """load_vector_sync_config: requires sync.yaml."""
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
             (root / "vector_bucket").mkdir()
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
-            self.assertIn("supabase_vector_sync", str(ctx.exception))
+                Settings.load_vector_sync_config(configuration_root=root)
+            self.assertIn("vector_sync", str(ctx.exception))
 
     def test_requires_distance_metric(self) -> None:
-        """load_supabase_vector_sync_config: rejects missing distance_metric."""
+        """load_vector_sync_config: rejects missing distance_metric."""
         yaml = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 1
@@ -137,13 +137,13 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, yaml)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("distance_metric", str(ctx.exception))
 
     def test_rejects_non_list_key_columns(self) -> None:
-        """load_supabase_vector_sync_config: key_columns must list when present."""
+        """load_vector_sync_config: key_columns must list when present."""
         bad = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 2
@@ -155,13 +155,13 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, bad)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("key_columns", str(ctx.exception))
 
     def test_rejects_blank_entry_in_key_columns(self) -> None:
-        """load_supabase_vector_sync_config: entries must be strings."""
+        """load_vector_sync_config: entries must be strings."""
         bad = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 2
@@ -174,13 +174,13 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, bad)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("key_columns[0]", str(ctx.exception))
 
     def test_rejects_unknown_distance_metric(self) -> None:
-        """load_supabase_vector_sync_config: validates distance_metric."""
+        """load_vector_sync_config: validates distance_metric."""
         bad = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 8
@@ -191,13 +191,13 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, bad)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("distance_metric", str(ctx.exception))
 
     def test_rejects_batch_over_500(self) -> None:
-        """load_supabase_vector_sync_config: caps batch_size at 500."""
+        """load_vector_sync_config: caps batch_size at 500."""
         bad = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 2
@@ -209,13 +209,13 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, bad)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("batch_size", str(ctx.exception))
 
     def test_rejects_empty_explicit_key_columns(self) -> None:
-        """load_supabase_vector_sync_config: empty key_columns list invalid."""
+        """load_vector_sync_config: empty key_columns list invalid."""
         bad = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 2
@@ -227,13 +227,13 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, bad)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("key_columns", str(ctx.exception))
 
     def test_rejects_bad_create_index_boolean(self) -> None:
         """create_index_if_missing must be strictly boolean."""
         yaml = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 2
@@ -246,13 +246,13 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, yaml)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("create_index_if_missing", str(ctx.exception))
 
     def test_rejects_bad_create_bucket_boolean(self) -> None:
-        """load_supabase_vector_sync_config: create_bucket_if_missing strict."""
+        """load_vector_sync_config: create_bucket_if_missing strict."""
         yaml = """\
-supabase_vector_sync:
+vector_sync:
   bucket_name: b
   index_name: i
   dimension: 2
@@ -264,7 +264,7 @@ supabase_vector_sync:
             root = Path(tmpdir)
             _write_sync_yaml(root, yaml)
             with self.assertRaises(ValueError) as ctx:
-                Settings.load_supabase_vector_sync_config(configuration_root=root)
+                Settings.load_vector_sync_config(configuration_root=root)
             self.assertIn("create_bucket_if_missing", str(ctx.exception))
 
 
