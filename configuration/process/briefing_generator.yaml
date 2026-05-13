@@ -6,7 +6,7 @@
 # monthly (first of UTC month through today). Omit date_filter for daily.
 briefing_generator:
   model: gemma-4-26b-a4b-it
-  vector_top_k: 10
+  vector_top_k: 15
   topics:
     - name: US politics
       vector_query: president congress supreme court
