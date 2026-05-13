@@ -1,0 +1,16 @@
+# Gemini briefing: model id and per-topic vector queries (service layer search text).
+# Requires GEMINI_API_KEY or GOOGLE_API_KEY. Vector search uses configuration/service_layer/vector_search.yaml
+# and embeddings from configuration/embeddings/embeddings.yaml (runtime embed dependency when querying).
+#
+# date_filter per topic: daily (UTC today only), weekly (last 7 UTC calendar days inclusive),
+# monthly (first of UTC month through today). Omit date_filter for daily.
+briefing_generator:
+  model: gemini-2.5-flash
+  vector_top_k: 10
+  topics:
+    - name: US politics
+      vector_query: president congress supreme court
+      date_filter: weekly
+    - name: Tech regulation
+      vector_query: AI regulation EU DMA
+      date_filter: monthly

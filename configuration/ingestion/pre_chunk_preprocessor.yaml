@@ -27,9 +27,6 @@ pre_chunk_preprocessor:
           - web_title
           - byline
           - section
-          - published_at
-          - first_publication_date
-          - url
           - pillar
           - last_modified
           - wordcount

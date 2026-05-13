@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, cast
 
 from src.config.yaml_config_parser import YAMLConfigParser
-from src.enums.briefing_date_filter import BriefingDateFilter
 from src.enums.article_row_source_kind import ArticleRowSourceKind
 from src.enums.article_row_transform import ArticleRowTransform
 from src.enums.guardian_order_by import GuardianOrderBy
@@ -584,18 +583,9 @@ class Settings:
             section.get("index_name"),
             field_name="vector_search.index_name",
         )
-        raw_date_key = section.get("date_metadata_key")
-        if raw_date_key is None:
-            date_metadata_key = "source_day"
-        else:
-            date_metadata_key = cls._load_non_empty_string(
-                raw_date_key,
-                field_name="vector_search.date_metadata_key",
-            )
         return VectorSearchConfig(
             bucket_name=bucket_name,
             index_name=index_name,
-            date_metadata_key=date_metadata_key,
         )
 
     @classmethod
@@ -654,22 +644,7 @@ class Settings:
                 item.get("vector_query"),
                 field_name=f"{prefix}.vector_query",
             )
-            raw_filter = item.get("date_filter")
-            if raw_filter is None:
-                date_filter = BriefingDateFilter.DAILY
-            else:
-                if not isinstance(raw_filter, str) or not raw_filter.strip():
-                    raise ValueError(
-                        f"{prefix}.date_filter must be a non-empty string",
-                    )
-                date_filter = BriefingDateFilter.from_value(raw_filter.strip())
-            specs.append(
-                BriefingTopicSpec(
-                    name=name,
-                    vector_query=vector_query,
-                    date_filter=date_filter,
-                ),
-            )
+            specs.append(BriefingTopicSpec(name=name, vector_query=vector_query))
         return tuple(specs)
 
     @classmethod
@@ -1625,16 +1600,14 @@ class VectorSearchConfig:
 
     bucket_name: str
     index_name: str
-    date_metadata_key: str = "source_day"
 
 
 @dataclass(frozen=True)
 class BriefingTopicSpec:
-    """Single topic label, vector query text, and metadata day window for search."""
+    """Single topic label and vector search query text for briefing context."""
 
     name: str
     vector_query: str
-    date_filter: BriefingDateFilter = BriefingDateFilter.DAILY
 
 
 @dataclass(frozen=True)

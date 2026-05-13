@@ -1,0 +1,9 @@
+# Target Storage vector bucket and index for similarity search from the service layer.
+# Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY. Embeddings use configuration/embeddings/embeddings.yaml.
+#
+# Optional date_metadata_key: metadata field used when search_by_text / semantic_search
+# receive date_from / date_to. Bounds are sent as an $in list of ISO YYYY-MM-DD strings
+# (Storage rejects string $gte/$lte on this field). Default source_day matches vector_sync.
+vector_search:
+  bucket_name: semantic-news-chunks
+  index_name: default-profile

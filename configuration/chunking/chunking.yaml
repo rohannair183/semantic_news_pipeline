@@ -17,6 +17,9 @@ chunking:
     - profile
   passthrough_columns:
     - headline
+    - published_at
+    - first_publication_date
+    - url
   profiles:
     default:
       strategy: semantic_sentence

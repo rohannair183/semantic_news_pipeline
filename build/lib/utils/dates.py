@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional, Union
 
@@ -16,28 +16,6 @@ DayInput = Union[date, datetime, str]
 def utc_today_date() -> date:
     """Return today's UTC date."""
     return datetime.now(timezone.utc).date()
-
-
-def date_range_single_calendar_day(day: date) -> tuple[date, date]:
-    """Return inclusive (day, day) for vector metadata day bounds."""
-    return day, day
-
-
-def date_range_last_n_calendar_days_inclusive(end: date, n: int) -> tuple[date, date]:
-    """Return inclusive (start, end) spanning ``n`` calendar days ending on ``end``.
-
-    ``n`` must be at least 1. For ``n == 1`` this matches :func:`date_range_single_calendar_day`.
-    """
-    if n < 1:
-        raise ValueError("n must be at least 1")
-    start = end - timedelta(days=n - 1)
-    return start, end
-
-
-def date_range_month_to_date(anchor: date) -> tuple[date, date]:
-    """Return inclusive (first day of month, ``anchor``) for month-to-date bounds."""
-    start = date(anchor.year, anchor.month, 1)
-    return start, anchor
 
 
 def utc_now_checkpoint_token() -> str:

@@ -45,6 +45,16 @@ class TestYAMLConfigType(unittest.TestCase):
         self.assertEqual(YAMLConfigType.ORCHESTRATION.value, "orchestration")
         self.assertEqual(YAMLConfigType.from_value("orchestration"), YAMLConfigType.ORCHESTRATION)
 
+    def test_service_layer_value(self):
+        """YAMLConfigType: exposes service_layer config directory name."""
+        self.assertEqual(YAMLConfigType.SERVICE_LAYER.value, "service_layer")
+        self.assertEqual(YAMLConfigType.from_value("service_layer"), YAMLConfigType.SERVICE_LAYER)
+
+    def test_process_value(self):
+        """YAMLConfigType: exposes process config directory name."""
+        self.assertEqual(YAMLConfigType.PROCESS.value, "process")
+        self.assertEqual(YAMLConfigType.from_value("process"), YAMLConfigType.PROCESS)
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

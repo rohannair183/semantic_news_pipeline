@@ -7,6 +7,9 @@ from unittest.mock import Mock, patch
 
 from src.utils.dates import (
     coerce_day,
+    date_range_last_n_calendar_days_inclusive,
+    date_range_month_to_date,
+    date_range_single_calendar_day,
     format_day_compact,
     format_day_iso,
     parse_checkpoint_timestamp,
@@ -67,6 +70,43 @@ class TestCoerceDay(unittest.TestCase):
             coerce_day("not-a-date")
         with self.assertRaises(ValueError):
             coerce_day(123)  # type: ignore[arg-type]
+
+
+class TestDateRangeBriefingHelpers(unittest.TestCase):
+    """This class tests date_range_single_calendar_day and related helpers."""
+
+    def test_date_range_single_calendar_day(self):
+        """date_range_single_calendar_day: returns the same day twice."""
+        day = date(2026, 5, 10)
+        self.assertEqual(date_range_single_calendar_day(day), (day, day))
+
+    def test_date_range_last_n_calendar_days_inclusive(self):
+        """date_range_last_n_calendar_days_inclusive: spans n days ending on end."""
+        end = date(2026, 5, 10)
+        self.assertEqual(
+            date_range_last_n_calendar_days_inclusive(end, 7),
+            (date(2026, 5, 4), end),
+        )
+        self.assertEqual(
+            date_range_last_n_calendar_days_inclusive(end, 1),
+            (end, end),
+        )
+
+    def test_date_range_last_n_rejects_zero(self):
+        """date_range_last_n_calendar_days_inclusive: raises when n < 1."""
+        with self.assertRaises(ValueError):
+            date_range_last_n_calendar_days_inclusive(date(2026, 1, 1), 0)
+
+    def test_date_range_month_to_date(self):
+        """date_range_month_to_date: first of month through anchor."""
+        self.assertEqual(
+            date_range_month_to_date(date(2026, 5, 12)),
+            (date(2026, 5, 1), date(2026, 5, 12)),
+        )
+        self.assertEqual(
+            date_range_month_to_date(date(2026, 1, 1)),
+            (date(2026, 1, 1), date(2026, 1, 1)),
+        )
 
 
 class TestFormatDayHelpers(unittest.TestCase):

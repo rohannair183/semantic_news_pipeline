@@ -19,6 +19,9 @@ vector_sync:
     - source_day
     - source_profile
     - chunking_strategy
+    - published_at
+    - first_publication_date
+    - url
   batch_size: 200
   create_bucket_if_missing: true
   create_index_if_missing: true
