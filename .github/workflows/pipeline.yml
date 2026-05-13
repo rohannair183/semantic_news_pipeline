@@ -2,11 +2,6 @@ name: Orchestrator pipeline
 
 on:
   workflow_dispatch:
-    inputs:
-      environment:
-        description: "GitHub Environment containing pipeline secrets"
-        required: true
-        default: "production"
 
 permissions:
   contents: write
@@ -14,7 +9,6 @@ permissions:
 jobs:
   orchestrator-smoke:
     runs-on: ubuntu-latest
-    environment: ${{ inputs.environment }}
 
     steps:
       - name: Checkout repo
@@ -34,21 +28,38 @@ jobs:
       - name: Fail fast if ingestion secret missing
         env:
           GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_POSTGRES_URL: ${{ secrets.SUPABASE_POSTGRES_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          if [ -z "$GUARDIAN_API_KEY" ]; then
-            echo "::error title=Missing secret::Add GUARDIAN_API_KEY under Settings → Secrets and variables → Actions (or attach an Environment secret with the required key)."
+          missing=0
+          for secret_name in \
+            GUARDIAN_API_KEY \
+            SUPABASE_URL \
+            SUPABASE_SERVICE_ROLE_KEY \
+            SUPABASE_POSTGRES_URL \
+            DATABASE_URL \
+            GEMINI_API_KEY; do
+            if [ -z "${!secret_name}" ]; then
+              echo "::error title=Missing secret::Add ${secret_name} under Settings -> Secrets and variables -> Actions (or attach an Environment secret with the required key)."
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
             exit 1
           fi
 
-      - name: Run YAML orchestrator (CI preset)
+      - name: Run YAML orchestrator (full preset)
         env:
           GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SUPABASE_POSTGRES_URL: ${{ secrets.SUPABASE_POSTGRES_URL }}
-        run: python -m src.application --config configuration/orchestration/orchestrator_ci.yaml
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python -m src.application --config configuration/orchestration/orchestrator.yaml
 
       - name: Commit and push pipeline outputs to main
         if: success()
