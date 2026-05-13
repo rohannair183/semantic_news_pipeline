@@ -1,0 +1,5 @@
+{"event": "guardian_api_call", "timestamp": "20260513T205910Z", "profile": "main_daily", "path": "/search", "status_code": 200, "status": "success"}
+{"event": "guardian_api_call", "timestamp": "20260513T205910Z", "profile": "main_daily", "path": "/australia-news/live/2026/may/14/budget-reply-angus-taylor-anthony-albanese-jim-chalmers-tax-reform-property-investment-negative-gearing-capital-gains-housing-ntwnfb", "status_code": 200, "status": "success"}
+{"event": "guardian_api_call", "timestamp": "20260513T205912Z", "profile": "main_weekly", "path": "/search", "status_code": 200, "status": "success"}
+{"event": "guardian_api_call", "timestamp": "20260513T205912Z", "profile": "main_weekly", "path": "/australia-news/2026/may/14/morning-mail-thursday-ntwnfb", "status_code": 200, "status": "success"}
+{"run_timestamp": "20260513T205909Z", "profile_count": 2, "profiles_run": ["main_daily", "main_weekly"], "searched_count": 7, "fetched_count": 2, "skipped_existing_count": 5, "failed_count": 0, "api_usage": {"total_api_calls": 4, "error_api_calls": 0, "calls_by_profile": {"main_daily": 2, "main_weekly": 2}}, "event": "ingestion_summary", "timestamp": "20260513T205912Z"}

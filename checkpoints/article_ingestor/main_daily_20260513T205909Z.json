@@ -1,0 +1,52 @@
+{
+  "profile": "main_daily",
+  "searched_count": 3,
+  "fetched_count": 1,
+  "skipped_existing_count": 2,
+  "failed_count": 0,
+  "items": [
+    {
+      "id": "australia-news/live/2026/may/14/budget-reply-angus-taylor-anthony-albanese-jim-chalmers-tax-reform-property-investment-negative-gearing-capital-gains-housing-ntwnfb",
+      "type": "liveblog",
+      "sectionId": "australia-news",
+      "sectionName": "Australia news",
+      "webPublicationDate": "2026-05-13T20:54:23Z",
+      "webTitle": "Australia politics live: Albanese denies tax reforms aimed at courting votes from growing gen Z cohort",
+      "webUrl": "https://www.theguardian.com/australia-news/live/2026/may/14/budget-reply-angus-taylor-anthony-albanese-jim-chalmers-tax-reform-property-investment-negative-gearing-capital-gains-housing-ntwnfb",
+      "apiUrl": "https://content.guardianapis.com/australia-news/live/2026/may/14/budget-reply-angus-taylor-anthony-albanese-jim-chalmers-tax-reform-property-investment-negative-gearing-capital-gains-housing-ntwnfb",
+      "fields": {
+        "headline": "Australia politics live: Albanese denies tax reforms aimed at courting votes from growing gen Z cohort",
+        "standfirst": "<p>Angus Taylor to give budget reply speech tonight. Follow today’s news live</p><ul><li><p>Get our <a href=\"https://www.theguardian.com/email-newsletters?CMP=cvau_sfl\">breaking news email</a>, <a href=\"https://app.adjust.com/w4u7jx3\">free app</a> or <a href=\"https://www.theguardian.com/australia-news/series/full-story?CMP=cvau_sfl\">daily news podcast</a></p></li></ul>",
+        "trailText": "Follow live",
+        "byline": "Martin Farrer",
+        "main": "<figure class=\"element element-image\" data-media-id=\"c5973661855c8d87cc0b758c6b07a74dffea87d6\"> <img src=\"https://media.guim.co.uk/c5973661855c8d87cc0b758c6b07a74dffea87d6/0_0_7520_5013/1000.jpg\" alt=\"The prime minister Anthony Albanese said the budget was about good policy and the politics ‘will look after itself’\" width=\"1000\" height=\"667\" class=\"gu-image\" /> <figcaption> <span class=\"element-image__caption\">The prime minister, Anthony Albanese, said the budget was about good policy and the politics ‘will look after itself’.</span> <span class=\"element-image__credit\">Photograph: Mick Tsikas/AAP</span> </figcaption> </figure>",
+        "body": "<div id=\"block-6a0460028f08eb526a03211b\" class=\"block is-key-event\" data-block-contributor=\"profile/josh-taylor\"> <p class=\"block-time published-time\"> <time datetime=\"2026-05-13T20:54:23.873Z\">9.54pm <span class=\"timezone\">BST</span></time> </p>   <h2 class=\"block-title\">PM denies housing and investment changes linked to new Gen Z voters</h2>  <div class=\"block-elements\">  <p>The prime minister, <strong>Anthony Albanese</strong>, has said that the additional 700,000 Gen Z voters being added to the electoral roll by the time of the next federal election were not a factor in deciding on the negative gearing and capital gains tax changes in Tuesday’s federal budget.</p> <p>Asked by <strong>Sarah Ferguson</strong> on ABC’s 7.30 about the additional voters, Albanese said he only considered the merits of the policy change.</p> <p>He said:</p> <blockquote class=\"quoted\"> <p>If you concentrate on good policy, the politics will look after itself.</p> <p>What we’re concentrating on here is good policy in the interest of young Australians, but also in the interest of that social cohesion. In the national interest as well.</p> </blockquote> <p>He said the government could not “sit back and continue to watch” income from labour treated differently to income from assets.</p> <p>On deciding to grandfather existing negative gearing arrangements, Albanese was asked how he would explain to a young person that the negative gearing advantages are “locked in” for older generations now.</p> <p>Albanese said negative gearing is still available for new builds, and the average time negative gearing operates is a little over five years because people either dispose of the property or it becomes positively geared.</p> <p>He said the government is also making sure “we don’t change the basis of people who have gone into investing in a property, on the basis of arrangements that were made available to them.”</p> </div>   </div> <div id=\"block-679b43ab8f08d7cb6f3007fa\" class=\"block is-key-event\" data-block-contributor=\"\"> <p class=\"block-time published-time\"> <time datetime=\"2026-05-13T20:27:02.579Z\">9.27pm <span class=\"timezone\">BST</span></time> </p>   <h2 class=\"block-title\">Welcome</h2>  <div class=\"block-elements\">  <p>Good morning and welcome to our live politics blog. I’m <strong>Martin Farrer</strong> with the top overnight stories and then <strong>Nick Visser</strong> will take the helm (with <strong>Krishani Dhanji</strong> ready to take over this afternoon in the lead-up to tonight’s budget reply speech from <strong>Angus Taylor</strong>).</p> <p><strong>Anthony Albanese</strong> has denied that the additional 700,000 gen Z voters being added to the electoral roll by the time of the next federal election was a factor in deciding on the negative gearing and capital gains tax changes in Tuesday’s federal budget. More coming up.</p> <p>Australians who shop at Coles are about to find out whether the federal court agrees that the supermarket intended to deceive them with “illusory” and “utterly misleading” discounts on many everyday products. More details coming up.</p> </div>   </div>",
+        "wordcount": "360",
+        "firstPublicationDate": "2026-05-13T20:27:02Z",
+        "isInappropriateForSponsorship": "false",
+        "isPremoderated": "false",
+        "lastModified": "2026-05-13T20:56:50Z",
+        "liveBloggingNow": "true",
+        "productionOffice": "AUS",
+        "publication": "theguardian.com",
+        "shortUrl": "https://www.theguardian.com/p/x5373k",
+        "shouldHideAdverts": "false",
+        "showInRelatedContent": "true",
+        "thumbnail": "https://media.guim.co.uk/c5973661855c8d87cc0b758c6b07a74dffea87d6/1082_0_6262_5013/500.jpg",
+        "legallySensitive": "false",
+        "lang": "en",
+        "isLive": "true",
+        "bodyText": "The prime minister, Anthony Albanese, has said that the additional 700,000 Gen Z voters being added to the electoral roll by the time of the next federal election were not a factor in deciding on the negative gearing and capital gains tax changes in Tuesday’s federal budget. Asked by Sarah Ferguson on ABC’s 7.30 about the additional voters, Albanese said he only considered the merits of the policy change. He said: If you concentrate on good policy, the politics will look after itself. What we’re concentrating on here is good policy in the interest of young Australians, but also in the interest of that social cohesion. In the national interest as well. He said the government could not “sit back and continue to watch” income from labour treated differently to income from assets. On deciding to grandfather existing negative gearing arrangements, Albanese was asked how he would explain to a young person that the negative gearing advantages are “locked in” for older generations now. Albanese said negative gearing is still available for new builds, and the average time negative gearing operates is a little over five years because people either dispose of the property or it becomes positively geared. He said the government is also making sure “we don’t change the basis of people who have gone into investing in a property, on the basis of arrangements that were made available to them.” Good morning and welcome to our live politics blog. I’m Martin Farrer with the top overnight stories and then Nick Visser will take the helm (with Krishani Dhanji ready to take over this afternoon in the lead-up to tonight’s budget reply speech from Angus Taylor). Anthony Albanese has denied that the additional 700,000 gen Z voters being added to the electoral roll by the time of the next federal election was a factor in deciding on the negative gearing and capital gains tax changes in Tuesday’s federal budget. More coming up. Australians who shop at Coles are about to find out whether the federal court agrees that the supermarket intended to deceive them with “illusory” and “utterly misleading” discounts on many everyday products. More details coming up.",
+        "charCount": "2166",
+        "shouldHideReaderRevenue": "false",
+        "showAffiliateLinks": "false",
+        "bylineHtml": "<a href=\"profile/martinfarrer\">Martin Farrer</a>",
+        "showTableOfContents": "false"
+      },
+      "isHosted": false,
+      "pillarId": "pillar/news",
+      "pillarName": "News"
+    }
+  ],
+  "failures": []
+}
