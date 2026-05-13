@@ -130,7 +130,10 @@ class TestBriefingGeneratorGenerate(unittest.TestCase):
         with patch.object(Settings, "load_briefing_generator_config", return_value=cfg), \
                 patch.object(Settings, "load_repository_dotenv"), \
                 patch.dict(os.environ, {"GEMINI_API_KEY": "x"}), \
-                patch("src.process.briefing_generator.utc_now_iso_z", return_value="2026-05-10T00:00:00Z"), \
+                patch(
+                    "src.process.briefing_generator.utc_now_iso_z",
+                    return_value="2026-05-10T00:00:00Z",
+                ), \
                 patch("google.generativeai.GenerativeModel") as gen_model, \
                 patch("google.generativeai.configure"):
             mock_model = MagicMock()
@@ -284,10 +287,12 @@ class TestBriefingGeneratorDateBounds(unittest.TestCase):
     def test_date_bounds_raises_for_unsupported_filter(self) -> None:
         """_date_bounds_for_topic: raises ValueError when filter is not recognized."""
         gen = BriefingGenerator.__new__(BriefingGenerator)
-        gen._reference_date = date(2026, 1, 1)
+        gen._reference_date = date(2026, 1, 1)  # pylint: disable=protected-access
         bad_topic = SimpleNamespace(date_filter="bogus")
         with self.assertRaises(ValueError) as ctx:
-            BriefingGenerator._date_bounds_for_topic(gen, bad_topic)  # type: ignore[arg-type]
+            BriefingGenerator._date_bounds_for_topic(  # pylint: disable=protected-access
+                gen, bad_topic  # type: ignore[arg-type]
+            )
         self.assertIn("unsupported", str(ctx.exception).lower())
 
 

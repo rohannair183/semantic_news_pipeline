@@ -226,7 +226,7 @@ class VectorBucketSync:
             for batch_number, offset in enumerate(range(0, len(payloads), stride), start=1):
                 batch = payloads[offset : offset + stride]
                 retry_with_exponential_backoff(
-                    lambda: vector_index.put(batch),
+                    lambda batch=batch: vector_index.put(batch),
                     is_retryable=_is_retryable_supabase_api_exception,
                     max_attempts=5,
                     initial_delay_seconds=0.5,
