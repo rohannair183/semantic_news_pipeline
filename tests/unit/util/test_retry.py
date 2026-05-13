@@ -3,7 +3,35 @@
 import unittest
 from unittest.mock import Mock
 
-from src.utils.retry import retry_with_exponential_backoff
+from src.utils.retry import ExponentialBackoffConfig, retry_with_exponential_backoff
+
+
+class TestExponentialBackoffConfig(unittest.TestCase):
+    """This class tests ExponentialBackoffConfig."""
+
+    def test_raises_when_max_attempts_less_than_one(self) -> None:
+        """ExponentialBackoffConfig: raises ValueError when max_attempts < 1."""
+        with self.assertRaises(ValueError) as ctx:
+            ExponentialBackoffConfig(max_attempts=0)
+        self.assertIn("max_attempts", str(ctx.exception))
+
+    def test_raises_when_initial_delay_negative(self) -> None:
+        """ExponentialBackoffConfig: raises ValueError when initial_delay_seconds < 0."""
+        with self.assertRaises(ValueError) as ctx:
+            ExponentialBackoffConfig(initial_delay_seconds=-0.1)
+        self.assertIn("initial_delay_seconds", str(ctx.exception))
+
+    def test_raises_when_backoff_multiplier_less_than_one(self) -> None:
+        """ExponentialBackoffConfig: raises ValueError when backoff_multiplier < 1.0."""
+        with self.assertRaises(ValueError) as ctx:
+            ExponentialBackoffConfig(backoff_multiplier=0.5)
+        self.assertIn("backoff_multiplier", str(ctx.exception))
+
+    def test_raises_when_max_delay_negative(self) -> None:
+        """ExponentialBackoffConfig: raises ValueError when max_delay_seconds < 0."""
+        with self.assertRaises(ValueError) as ctx:
+            ExponentialBackoffConfig(max_delay_seconds=-1.0)
+        self.assertIn("max_delay_seconds", str(ctx.exception))
 
 
 class TestRetryWithExponentialBackoff(unittest.TestCase):

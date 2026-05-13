@@ -618,7 +618,6 @@ class TestGuardianClientGetArticleById(GuardianClientTestCase):
 
 class TestGuardianClientGetArticlesByIds(GuardianClientTestCase):
     """This class tests get_articles_by_ids."""
-
     def test_get_articles_by_ids_collects_failures(self):
         """get_articles_by_ids: captures per-id failures without aborting the whole batch."""
         client = GuardianClient()
@@ -682,7 +681,7 @@ class TestGuardianClientIsRetryableRequestException(GuardianClientTestCase):
         exc.response = None
         result = GuardianClient._is_retryable_request_exception(exc)  # pylint: disable=protected-access
         self.assertTrue(result)
-
+    # pylint: disable=protected-access
     def test_returns_false_for_http_error_with_non_retryable_status(self) -> None:
         """_is_retryable_request_exception: returns False for 4xx non-rate-limit errors."""
         response_400 = Mock()
