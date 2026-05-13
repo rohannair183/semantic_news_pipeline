@@ -5,7 +5,7 @@
 # date_filter per topic: daily (UTC today only), weekly (last 7 UTC calendar days inclusive),
 # monthly (first of UTC month through today). Omit date_filter for daily.
 briefing_generator:
-  model: gemini-2.5-flash
+  model: gemma-4-26b-a4b-it
   vector_top_k: 10
   topics:
     - name: US politics

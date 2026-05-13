@@ -1,13 +1,20 @@
-"""Similarity search against a Supabase Storage vector index using configured embeddings."""
+"""Semantic vector search: embed query text, then run Supabase Storage similarity query.
+
+Date bounds on string metadata (e.g. ``source_day`` as ``YYYY-MM-DD``) are sent as a flat
+``{"field": {"$in": ["YYYY-MM-DD", ...]}}`` filter. The live ``QueryVectors`` schema rejects
+``$gte`` / ``$lte`` with string operands on those fields (it expects numeric bounds there).
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 from src.config.settings import Settings
 from src.embeddings.providers import resolve_provider
+from src.utils.dates import DayInput, coerce_day, format_day_iso
 from src.utils.retry import retry_with_exponential_backoff
 from src.utils.timer import Timer
 from src.vector_sync.bucket_sync import (
@@ -16,6 +23,50 @@ from src.vector_sync.bucket_sync import (
 )
 
 SupabaseClientFactory = Callable[[], Any]
+
+# ``$in`` payload size guard (inclusive calendar days).
+_MAX_DAYS_IN_VECTOR_DATE_FILTER = 366
+
+
+def _inclusive_iso_day_strings(
+    date_from: Optional[DayInput],
+    date_to: Optional[DayInput],
+    *,
+    max_days: int = _MAX_DAYS_IN_VECTOR_DATE_FILTER,
+) -> List[str]:
+    """Return each ``YYYY-MM-DD`` from ``date_from`` through ``date_to`` (inclusive).
+
+    Open-ended bounds collapse to that single calendar day so the filter stays finite.
+
+    Raises:
+        ValueError: When ``date_from`` is after ``date_to`` or the span exceeds ``max_days``.
+    """
+    lo = coerce_day(date_from) if date_from is not None else None
+    hi = coerce_day(date_to) if date_to is not None else None
+    if lo is None and hi is None:
+        return []
+    if lo is None:
+        lo = hi
+    if hi is None:
+        hi = lo
+    if lo > hi:
+        raise ValueError("date_from must be on or before date_to")
+    span = (hi - lo).days + 1
+    if span > max_days:
+        raise ValueError(
+            f"date range spans {span} days (from {format_day_iso(lo)} to {format_day_iso(hi)}); "
+            f"max supported for vector date $in filter is {max_days} days",
+        )
+    out: List[str] = []
+    cur = lo
+    while cur <= hi:
+        out.append(format_day_iso(cur))
+        cur += timedelta(days=1)
+    return out
+
+
+def _metadata_has_only_logical_root(metadata_filter: Mapping[str, Any]) -> bool:
+    return tuple(metadata_filter.keys()) in {("$and",), ("$or",)}
 
 
 @dataclass(frozen=True)
@@ -58,8 +109,56 @@ def _normalize_query_hits(response: Any) -> Tuple[VectorSearchHit, ...]:
     return tuple(hits)
 
 
+def _compose_query_filter(
+    metadata_filter: Optional[Mapping[str, Any]],
+    *,
+    date_from: Optional[DayInput],
+    date_to: Optional[DayInput],
+    date_metadata_key: str,
+) -> Optional[Dict[str, Any]]:
+    """Merge optional metadata filter with inclusive calendar-day bounds.
+
+    String day metadata (as stored by vector sync) is filtered with ``$in`` over the list
+    of ``YYYY-MM-DD`` strings in the inclusive range. ``metadata_filter`` must be a **flat**
+    mapping when combined with dates (no top-level ``$and`` / ``$or`` only).
+
+    Raises:
+        ValueError: When bounds are invalid, the range is too long, ``date_metadata_key`` is
+            empty, the key collides with ``metadata_filter``, or logical-only metadata is
+            combined with date bounds.
+    """
+    key = date_metadata_key.strip()
+    if (date_from is not None or date_to is not None) and not key:
+        raise ValueError("date_metadata_key must be non-empty when date_from or date_to is set")
+
+    day_strings = _inclusive_iso_day_strings(date_from, date_to)
+    if not day_strings:
+        if not metadata_filter:
+            return None
+        return dict(metadata_filter)
+
+    if metadata_filter and _metadata_has_only_logical_root(metadata_filter):
+        raise ValueError(
+            "metadata_filter with only top-level $and or $or cannot be combined with "
+            "date_from/date_to; use a flat field map or omit date bounds",
+        )
+
+    date_pred = {key: {"$in": day_strings}}
+
+    if not metadata_filter:
+        return date_pred
+
+    meta = dict(metadata_filter)
+    if key in meta:
+        raise ValueError(
+            f"metadata_filter already sets {key!r}; "
+            "omit that key or do not pass date_from/date_to",
+        )
+    return {**meta, **date_pred}
+
+
 class VectorSearchService:
-    """Embed query text and run Storage vector index similarity search."""
+    """Semantic search: embed query text, run Storage vector index similarity search."""
 
     def __init__(
         self,
@@ -105,21 +204,57 @@ class VectorSearchService:
             raise RuntimeError("Embedding provider returned no vector for query text")
         return [float(x) for x in vectors[0]]
 
+    def semantic_search(  # pylint: disable=too-many-arguments
+        self,
+        query: str,
+        *,
+        top_k: int = 10,
+        metadata_filter: Optional[Mapping[str, Any]] = None,
+        date_from: Optional[DayInput] = None,
+        date_to: Optional[DayInput] = None,
+        date_metadata_key: Optional[str] = None,
+        return_distance: bool = True,
+        return_metadata: bool = True,
+    ) -> VectorSearchResponse:
+        """Semantic search: embed ``query``, then ``index.query`` (Supabase vector flow).
+
+        Same behavior as :meth:`search_by_text`; name matches Supabase semantic search docs.
+        """
+        return self._semantic_vector_query(
+            query,
+            top_k=top_k,
+            metadata_filter=metadata_filter,
+            date_from=date_from,
+            date_to=date_to,
+            date_metadata_key=date_metadata_key,
+            return_distance=return_distance,
+            return_metadata=return_metadata,
+        )
+
     def search_by_text(  # pylint: disable=too-many-arguments
         self,
         text: str,
         *,
         top_k: int = 10,
         metadata_filter: Optional[Mapping[str, Any]] = None,
+        date_from: Optional[DayInput] = None,
+        date_to: Optional[DayInput] = None,
+        date_metadata_key: Optional[str] = None,
         return_distance: bool = True,
         return_metadata: bool = True,
     ) -> VectorSearchResponse:
-        """Embed ``text`` and query the configured vector index.
+        """Semantic vector search: embed ``text``, then query the configured vector index.
 
         Parameters:
             text: Query string; must be non-empty after stripping.
             top_k: Maximum number of matches (passed as ``topK`` to Storage).
-            metadata_filter: Optional Storage vector filter mapping.
+            metadata_filter: Optional filter; flat map when no date bounds (see Supabase docs).
+            date_from: Optional inclusive lower bound (calendar day); with ``date_to`` omitted,
+                only that day is included in the ``$in`` list.
+            date_to: Optional inclusive upper bound; with ``date_from`` omitted, only that day
+                is included in the ``$in`` list.
+            date_metadata_key: Metadata field for date bounds; defaults to configured
+                ``vector_search.date_metadata_key`` (normally ``source_day``).
             return_distance: Whether to request distance scores from Storage.
             return_metadata: Whether to request metadata from Storage.
 
@@ -129,6 +264,29 @@ class VectorSearchService:
         Raises:
             ValueError: When ``text`` is empty or ``top_k`` is not positive.
         """
+        return self._semantic_vector_query(
+            text,
+            top_k=top_k,
+            metadata_filter=metadata_filter,
+            date_from=date_from,
+            date_to=date_to,
+            date_metadata_key=date_metadata_key,
+            return_distance=return_distance,
+            return_metadata=return_metadata,
+        )
+
+    def _semantic_vector_query(  # pylint: disable=too-many-arguments,too-many-locals
+        self,
+        text: str,
+        *,
+        top_k: int = 10,
+        metadata_filter: Optional[Mapping[str, Any]] = None,
+        date_from: Optional[DayInput] = None,
+        date_to: Optional[DayInput] = None,
+        date_metadata_key: Optional[str] = None,
+        return_distance: bool = True,
+        return_metadata: bool = True,
+    ) -> VectorSearchResponse:
         stripped = text.strip()
         if not stripped:
             raise ValueError("text must be non-empty")
@@ -136,9 +294,17 @@ class VectorSearchService:
             raise ValueError("top_k must be at least 1")
 
         query_vector = self._embed_query_text(stripped)
-        filter_payload: Optional[Dict[str, Any]] = None
-        if metadata_filter is not None:
-            filter_payload = dict(metadata_filter)
+        resolved_date_key = (
+            date_metadata_key.strip()
+            if isinstance(date_metadata_key, str) and date_metadata_key.strip()
+            else self._vector_config.date_metadata_key
+        )
+        filter_payload = _compose_query_filter(
+            metadata_filter,
+            date_from=date_from,
+            date_to=date_to,
+            date_metadata_key=resolved_date_key,
+        )
 
         client = self._supabase_factory()
         bucket_scope = client.storage.vectors().from_(self._vector_config.bucket_name)

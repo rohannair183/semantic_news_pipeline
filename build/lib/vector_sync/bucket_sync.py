@@ -15,6 +15,7 @@ from storage3.types import VectorData, VectorObject
 from src.config.settings import Settings
 from src.enums.vector_bucket_distance_metric import VectorBucketDistanceMetric
 from src.utils.retry import retry_with_exponential_backoff
+from src.utils.supabase_db import create_supabase_service_client
 from src.utils.timer import Timer
 
 MetadataScalar = Union[str, bool, float]
@@ -24,12 +25,7 @@ SupabaseClientFactory = Callable[[], Any]
 
 def _default_supabase_client_factory() -> Any:
     """Build a Supabase client from runtime environment secrets."""
-    from supabase import (  # pylint: disable=import-outside-toplevel
-        create_client,
-    )
-
-    url, service_key = Settings.load_supabase_credentials()
-    return create_client(url, service_key)
+    return create_supabase_service_client()
 
 
 def _looks_like_duplicate_resource(exc: BaseException) -> bool:
@@ -226,7 +222,7 @@ class VectorBucketSync:
             for batch_number, offset in enumerate(range(0, len(payloads), stride), start=1):
                 batch = payloads[offset : offset + stride]
                 retry_with_exponential_backoff(
-                    lambda: vector_index.put(batch),
+                    lambda batch=batch: vector_index.put(batch),
                     is_retryable=_is_retryable_supabase_api_exception,
                     max_attempts=5,
                     initial_delay_seconds=0.5,

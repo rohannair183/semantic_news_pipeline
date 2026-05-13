@@ -78,6 +78,25 @@ def format_day_compact(day: date) -> str:
     return resolved_day.strftime(COMPACT_DAY_FORMAT)
 
 
+def parse_utc_instant_iso_z(value: str) -> datetime:
+    """Parse a UTC instant string that ends with ``Z`` (as from ``utc_now_iso_z``).
+
+    Returns an aware datetime in UTC. Raises :class:`ValueError` when the string
+    is empty, does not end with ``Z``, or is not a valid ISO-8601 timestamp.
+    """
+    candidate = value.strip()
+    if not candidate:
+        raise ValueError("instant string must be non-empty")
+    if not candidate.endswith("Z"):
+        raise ValueError("instant string must end with Z for UTC")
+    normalized = f"{candidate[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError("instant string is not valid ISO-8601") from exc
+    return parsed.astimezone(timezone.utc)
+
+
 def parse_guardian_datetime(value: Optional[str]) -> Optional[datetime]:
     """Parse a Guardian API datetime string."""
     if value is None:

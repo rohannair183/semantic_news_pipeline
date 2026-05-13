@@ -73,14 +73,15 @@ class TestBriefingGeneratorInit(unittest.TestCase):
                     os.environ,
                     {"GEMINI_API_KEY": "", "GOOGLE_API_KEY": "google-only"},
                 ), \
-                patch("google.generativeai.GenerativeModel") as gen_model, \
-                patch("google.generativeai.configure") as gen_configure:
-            mock_model = MagicMock()
-            mock_model.generate_content.return_value = MagicMock(text="Ok")
-            gen_model.return_value = mock_model
+                patch("src.process.briefing_generator.genai.Client") as gen_client:
+            mock_models = MagicMock()
+            mock_models.generate_content.return_value = MagicMock(text="Ok")
+            mock_instance = MagicMock()
+            mock_instance.models = mock_models
+            gen_client.return_value = mock_instance
             gen = BriefingGenerator(vector_search=fake_vs)
             gen.generate()
-            gen_configure.assert_called_with(api_key="google-only")
+            gen_client.assert_called_with(api_key="google-only")
 
     def test_prefers_gemini_key_over_google(self) -> None:
         """__init__: uses GEMINI_API_KEY when both are set."""
@@ -93,14 +94,15 @@ class TestBriefingGeneratorInit(unittest.TestCase):
                     os.environ,
                     {"GEMINI_API_KEY": "gemini-key", "GOOGLE_API_KEY": "google-key"},
                 ), \
-                patch("google.generativeai.GenerativeModel") as gen_model, \
-                patch("google.generativeai.configure") as gen_configure:
-            mock_model = MagicMock()
-            mock_model.generate_content.return_value = MagicMock(text="Out")
-            gen_model.return_value = mock_model
+                patch("src.process.briefing_generator.genai.Client") as gen_client:
+            mock_models = MagicMock()
+            mock_models.generate_content.return_value = MagicMock(text="Out")
+            mock_instance = MagicMock()
+            mock_instance.models = mock_models
+            gen_client.return_value = mock_instance
             gen = BriefingGenerator(vector_search=fake_vs)
             gen.generate()
-            gen_configure.assert_called_with(api_key="gemini-key")
+            gen_client.assert_called_with(api_key="gemini-key")
 
 
 class TestBriefingGeneratorGenerate(unittest.TestCase):
@@ -134,11 +136,14 @@ class TestBriefingGeneratorGenerate(unittest.TestCase):
                     "src.process.briefing_generator.utc_now_iso_z",
                     return_value="2026-05-10T00:00:00Z",
                 ), \
-                patch("google.generativeai.GenerativeModel") as gen_model, \
-                patch("google.generativeai.configure"):
-            mock_model = MagicMock()
-            mock_model.generate_content.return_value = MagicMock(text="  Final briefing.\n")
-            gen_model.return_value = mock_model
+                patch("src.process.briefing_generator.genai.Client") as gen_client:
+            mock_models = MagicMock()
+            mock_models.generate_content.return_value = MagicMock(
+                text="  Final briefing.\n",
+            )
+            mock_instance = MagicMock()
+            mock_instance.models = mock_models
+            gen_client.return_value = mock_instance
             anchor = date(2026, 5, 10)
             gen = BriefingGenerator(vector_search=fake_vs, reference_date=anchor)
             result = gen.generate()
@@ -157,7 +162,7 @@ class TestBriefingGeneratorGenerate(unittest.TestCase):
             date_from=anchor,
             date_to=anchor,
         )
-        prompt = mock_model.generate_content.call_args[0][0]
+        prompt = mock_models.generate_content.call_args.kwargs["contents"]
         self.assertEqual(result.llm_prompt, prompt)
         doc = result.to_json_dict()
         self.assertEqual(doc["briefing_text"], "Final briefing.")
@@ -200,11 +205,12 @@ class TestBriefingGeneratorGenerate(unittest.TestCase):
         with patch.object(Settings, "load_briefing_generator_config", return_value=cfg), \
                 patch.object(Settings, "load_repository_dotenv"), \
                 patch.dict(os.environ, {"GEMINI_API_KEY": "x"}), \
-                patch("google.generativeai.GenerativeModel") as gen_model, \
-                patch("google.generativeai.configure"):
-            mock_model = MagicMock()
-            mock_model.generate_content.return_value = MagicMock(text="ok")
-            gen_model.return_value = mock_model
+                patch("src.process.briefing_generator.genai.Client") as gen_client:
+            mock_models = MagicMock()
+            mock_models.generate_content.return_value = MagicMock(text="ok")
+            mock_instance = MagicMock()
+            mock_instance.models = mock_models
+            gen_client.return_value = mock_instance
             gen = BriefingGenerator(vector_search=fake_vs, reference_date=anchor)
             gen.generate()
 
@@ -233,11 +239,12 @@ class TestBriefingGeneratorGenerate(unittest.TestCase):
         with patch.object(Settings, "load_briefing_generator_config", return_value=cfg), \
                 patch.object(Settings, "load_repository_dotenv"), \
                 patch.dict(os.environ, {"GEMINI_API_KEY": "x"}), \
-                patch("google.generativeai.GenerativeModel") as gen_model, \
-                patch("google.generativeai.configure"):
-            mock_model = MagicMock()
-            mock_model.generate_content.return_value = MagicMock(text="   ")
-            gen_model.return_value = mock_model
+                patch("src.process.briefing_generator.genai.Client") as gen_client:
+            mock_models = MagicMock()
+            mock_models.generate_content.return_value = MagicMock(text="   ")
+            mock_instance = MagicMock()
+            mock_instance.models = mock_models
+            gen_client.return_value = mock_instance
             gen = BriefingGenerator(vector_search=fake_vs)
             with self.assertRaises(RuntimeError) as ctx:
                 gen.generate()
@@ -256,11 +263,12 @@ class TestBriefingGeneratorGenerate(unittest.TestCase):
         with patch.object(Settings, "load_briefing_generator_config", return_value=cfg), \
                 patch.object(Settings, "load_repository_dotenv"), \
                 patch.dict(os.environ, {"GEMINI_API_KEY": "x"}), \
-                patch("google.generativeai.GenerativeModel") as gen_model, \
-                patch("google.generativeai.configure"):
-            mock_model = MagicMock()
-            mock_model.generate_content.return_value = _BlockedResponse()
-            gen_model.return_value = mock_model
+                patch("src.process.briefing_generator.genai.Client") as gen_client:
+            mock_models = MagicMock()
+            mock_models.generate_content.return_value = _BlockedResponse()
+            mock_instance = MagicMock()
+            mock_instance.models = mock_models
+            gen_client.return_value = mock_instance
             gen = BriefingGenerator(vector_search=fake_vs)
             with self.assertRaises(RuntimeError) as ctx:
                 gen.generate()

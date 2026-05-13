@@ -1,0 +1,16 @@
+# Persist ``BriefingGenerationResult`` to Postgres via Supabase PostgREST + optional DDL.
+# Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (same as PostgREST inserts).
+#
+# When ``ensure_table`` is true, runs CREATE TABLE IF NOT EXISTS over direct Postgres,
+# then NOTIFY so PostgREST reloads its schema cache (avoids PGRST205 on the next insert).
+#
+# If ``db.<project_ref>.supabase.co`` does not resolve on your network, set either
+# ``SUPABASE_POSTGRES_URL`` or ``DATABASE_URL`` in ``.env`` to the Postgres URI from
+# Supabase Dashboard → Database. A non-empty value in ``.env`` overrides an empty
+# ``DATABASE_URL`` exported in the shell (``_load_env_file`` alone cannot replace it).
+#
+# Set ``ensure_table: false`` only if you create the table yourself (e.g. SQL editor).
+briefing_persistence:
+  table_name: news_briefings
+  schema_name: public
+  ensure_table: true

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Union
 
@@ -16,6 +16,28 @@ DayInput = Union[date, datetime, str]
 def utc_today_date() -> date:
     """Return today's UTC date."""
     return datetime.now(timezone.utc).date()
+
+
+def date_range_single_calendar_day(day: date) -> tuple[date, date]:
+    """Return inclusive (day, day) for vector metadata day bounds."""
+    return day, day
+
+
+def date_range_last_n_calendar_days_inclusive(end: date, n: int) -> tuple[date, date]:
+    """Return inclusive (start, end) spanning ``n`` calendar days ending on ``end``.
+
+    ``n`` must be at least 1. For ``n == 1`` this matches :func:`date_range_single_calendar_day`.
+    """
+    if n < 1:
+        raise ValueError("n must be at least 1")
+    start = end - timedelta(days=n - 1)
+    return start, end
+
+
+def date_range_month_to_date(anchor: date) -> tuple[date, date]:
+    """Return inclusive (first day of month, ``anchor``) for month-to-date bounds."""
+    start = date(anchor.year, anchor.month, 1)
+    return start, anchor
 
 
 def utc_now_checkpoint_token() -> str:
@@ -54,6 +76,25 @@ def format_day_compact(day: date) -> str:
     """Format a day as YYYYMMDD."""
     resolved_day = _require_date(day)
     return resolved_day.strftime(COMPACT_DAY_FORMAT)
+
+
+def parse_utc_instant_iso_z(value: str) -> datetime:
+    """Parse a UTC instant string that ends with ``Z`` (as from ``utc_now_iso_z``).
+
+    Returns an aware datetime in UTC. Raises :class:`ValueError` when the string
+    is empty, does not end with ``Z``, or is not a valid ISO-8601 timestamp.
+    """
+    candidate = value.strip()
+    if not candidate:
+        raise ValueError("instant string must be non-empty")
+    if not candidate.endswith("Z"):
+        raise ValueError("instant string must end with Z for UTC")
+    normalized = f"{candidate[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise ValueError("instant string is not valid ISO-8601") from exc
+    return parsed.astimezone(timezone.utc)
 
 
 def parse_guardian_datetime(value: Optional[str]) -> Optional[datetime]:

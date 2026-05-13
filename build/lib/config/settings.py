@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, Optional, cast
 
 from src.config.yaml_config_parser import YAMLConfigParser
+from src.enums.briefing_date_filter import BriefingDateFilter
 from src.enums.article_row_source_kind import ArticleRowSourceKind
 from src.enums.article_row_transform import ArticleRowTransform
 from src.enums.guardian_order_by import GuardianOrderBy
@@ -24,6 +25,7 @@ from src.enums.orchestrator_task_kind import OrchestratorTaskKind
 from src.enums.vector_bucket_distance_metric import VectorBucketDistanceMetric
 from src.enums.yaml_config_type import YAMLConfigType
 from src.utils.dates import coerce_day, utc_today_date
+from src.utils.pg_identifiers import validate_pg_identifier
 
 
 @dataclass(frozen=True)
@@ -79,10 +81,14 @@ class Settings:
         )
 
     @staticmethod
+    def _repository_root_dotenv_path() -> Path:
+        """Return the path to the repository root ``.env`` file."""
+        return Path(__file__).resolve().parents[2] / ".env"
+
+    @staticmethod
     def _load_env_file() -> None:
         """Load environment variables from the repository root .env file."""
-        module_path = Path(__file__).resolve()
-        env_path = module_path.parents[2] / ".env"
+        env_path = Settings._repository_root_dotenv_path()
         if not env_path.is_file():
             return
 
@@ -96,6 +102,35 @@ class Settings:
                 value = value.strip().strip('"').strip("'")
                 if key and key not in os.environ:
                     os.environ[key] = value
+
+    @classmethod
+    def _merge_dotenv_values_for_keys_always(
+        cls,
+        keys: tuple[str, ...],
+    ) -> None:
+        """Set ``os.environ`` from repository ``.env`` for ``keys``, overwriting existing.
+
+        Unlike :meth:`_load_env_file`, this overwrites when the file defines a non-empty
+        value. Used for Postgres DDL URIs so an empty ``DATABASE_URL`` in the parent
+        process does not block a real URI from ``.env``.
+        """
+        env_path = Settings._repository_root_dotenv_path()
+        if not env_path.is_file():
+            return
+        wanted = frozenset(keys)
+        assignments: Dict[str, str] = {}
+        with env_path.open("r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key in wanted and value and str(value).strip():
+                    assignments[key] = str(value).strip()
+        for key, value in assignments.items():
+            os.environ[key] = value
 
     @classmethod
     def load_repository_dotenv(cls) -> None:
@@ -121,6 +156,31 @@ class Settings:
         if not service_key or not str(service_key).strip():
             raise ValueError("SUPABASE_SERVICE_ROLE_KEY is not set or empty")
         return str(url).strip(), str(service_key).strip()
+
+    @classmethod
+    def load_optional_postgres_conninfo(
+        cls,
+        load_dotenv: bool = True,
+    ) -> Optional[str]:
+        """Return a Postgres libpq URI from the environment when configured.
+
+        Used for DDL (e.g. ``CREATE TABLE``) when the derived ``db.<ref>.supabase.co``
+        host is unavailable. Checks ``SUPABASE_POSTGRES_URL`` first, then ``DATABASE_URL``.
+        Copy the value from Supabase Dashboard → Database → connection string (URI).
+
+        When ``load_dotenv`` is true, after the usual ``.env`` merge, those two keys are
+        re-read from ``.env`` so a non-empty file value overrides an empty shell export.
+        """
+        if load_dotenv:
+            cls._load_env_file()
+            cls._merge_dotenv_values_for_keys_always(
+                ("SUPABASE_POSTGRES_URL", "DATABASE_URL"),
+            )
+        for key in ("SUPABASE_POSTGRES_URL", "DATABASE_URL"):
+            raw = os.getenv(key)
+            if raw and str(raw).strip():
+                return str(raw).strip()
+        return None
 
     @classmethod
     def load_ingestion_config(cls) -> Dict[str, Any]:
@@ -583,9 +643,18 @@ class Settings:
             section.get("index_name"),
             field_name="vector_search.index_name",
         )
+        raw_date_key = section.get("date_metadata_key")
+        if raw_date_key is None:
+            date_metadata_key = "source_day"
+        else:
+            date_metadata_key = cls._load_non_empty_string(
+                raw_date_key,
+                field_name="vector_search.date_metadata_key",
+            )
         return VectorSearchConfig(
             bucket_name=bucket_name,
             index_name=index_name,
+            date_metadata_key=date_metadata_key,
         )
 
     @classmethod
@@ -627,6 +696,52 @@ class Settings:
         )
 
     @classmethod
+    def load_briefing_persistence_config(
+        cls,
+        configuration_root: Optional[Path] = None,
+        filename: str = "briefing_persistence.yaml",
+    ) -> "BriefingPersistenceConfig":
+        """Load and validate typed briefing Postgres persistence configuration."""
+        parser = (
+            YAMLConfigParser()
+            if configuration_root is None
+            else YAMLConfigParser(configuration_root=configuration_root)
+        )
+        raw = parser.parse(
+            config_type=YAMLConfigType.PROCESS,
+            filename=filename,
+        )
+        section = cls._load_required_section(raw, section_name="briefing_persistence")
+        return cls._briefing_persistence_from_mapping(section)
+
+    @classmethod
+    def _briefing_persistence_from_mapping(
+        cls,
+        section: Dict[str, Any],
+    ) -> "BriefingPersistenceConfig":
+        """Parse ``briefing_persistence`` YAML mapping into typed config."""
+        table_name = cls._load_non_empty_string(
+            section.get("table_name"),
+            field_name="briefing_persistence.table_name",
+        )
+        raw_schema = section.get("schema_name", "public")
+        schema_name = cls._load_non_empty_string(
+            raw_schema,
+            field_name="briefing_persistence.schema_name",
+        )
+        raw_ensure = section.get("ensure_table", True)
+        if not isinstance(raw_ensure, bool):
+            raise ValueError("briefing_persistence.ensure_table must be a boolean")
+        ensure_table = raw_ensure
+        validate_pg_identifier(table_name, field_name="briefing_persistence.table_name")
+        validate_pg_identifier(schema_name, field_name="briefing_persistence.schema_name")
+        return BriefingPersistenceConfig(
+            table_name=table_name,
+            schema_name=schema_name,
+            ensure_table=ensure_table,
+        )
+
+    @classmethod
     def _briefing_topics_from_yaml(cls, value: Any) -> tuple["BriefingTopicSpec", ...]:
         """Parse non-empty list of topic mappings."""
         if not isinstance(value, list) or not value:
@@ -644,7 +759,22 @@ class Settings:
                 item.get("vector_query"),
                 field_name=f"{prefix}.vector_query",
             )
-            specs.append(BriefingTopicSpec(name=name, vector_query=vector_query))
+            raw_filter = item.get("date_filter")
+            if raw_filter is None:
+                date_filter = BriefingDateFilter.DAILY
+            else:
+                if not isinstance(raw_filter, str) or not raw_filter.strip():
+                    raise ValueError(
+                        f"{prefix}.date_filter must be a non-empty string",
+                    )
+                date_filter = BriefingDateFilter.from_value(raw_filter.strip())
+            specs.append(
+                BriefingTopicSpec(
+                    name=name,
+                    vector_query=vector_query,
+                    date_filter=date_filter,
+                ),
+            )
         return tuple(specs)
 
     @classmethod
@@ -1600,14 +1730,16 @@ class VectorSearchConfig:
 
     bucket_name: str
     index_name: str
+    date_metadata_key: str = "source_day"
 
 
 @dataclass(frozen=True)
 class BriefingTopicSpec:
-    """Single topic label and vector search query text for briefing context."""
+    """Single topic label, vector query text, and metadata day window for search."""
 
     name: str
     vector_query: str
+    date_filter: BriefingDateFilter = BriefingDateFilter.DAILY
 
 
 @dataclass(frozen=True)
@@ -1617,6 +1749,15 @@ class BriefingGeneratorConfig:
     model: str
     topics: tuple[BriefingTopicSpec, ...]
     vector_top_k: int
+
+
+@dataclass(frozen=True)
+class BriefingPersistenceConfig:
+    """Typed configuration for persisting briefing runs to Postgres."""
+
+    table_name: str
+    schema_name: str = "public"
+    ensure_table: bool = True
 
 
 @dataclass(frozen=True)

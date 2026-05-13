@@ -14,6 +14,7 @@ from src.utils.dates import (
     format_day_iso,
     parse_checkpoint_timestamp,
     parse_guardian_datetime,
+    parse_utc_instant_iso_z,
     utc_now_checkpoint_token,
     utc_today_date,
 )
@@ -124,6 +125,35 @@ class TestFormatDayHelpers(unittest.TestCase):
             format_day_iso(datetime(2026, 4, 29, 1, 2, 3))
         with self.assertRaises(TypeError):
             format_day_compact(datetime(2026, 4, 29, 1, 2, 3))
+
+
+class TestParseUtcInstantIsoZ(unittest.TestCase):
+    """This class tests parse_utc_instant_iso_z."""
+
+    def test_parses_z_suffix_to_utc_aware(self) -> None:
+        """parse_utc_instant_iso_z: returns UTC-aware datetime."""
+        dt = parse_utc_instant_iso_z("2026-05-12T15:30:00Z")
+        self.assertEqual(dt, datetime(2026, 5, 12, 15, 30, 0, tzinfo=timezone.utc))
+
+    def test_strips_whitespace(self) -> None:
+        """parse_utc_instant_iso_z: trims input."""
+        dt = parse_utc_instant_iso_z("  2026-01-01T00:00:00Z  ")
+        self.assertEqual(dt, datetime(2026, 1, 1, 0, 0, 0, tzinfo=timezone.utc))
+
+    def test_rejects_non_z_suffix(self) -> None:
+        """parse_utc_instant_iso_z: requires Z UTC suffix."""
+        with self.assertRaises(ValueError):
+            parse_utc_instant_iso_z("2026-05-12T15:30:00+00:00")
+
+    def test_rejects_empty(self) -> None:
+        """parse_utc_instant_iso_z: rejects empty string."""
+        with self.assertRaises(ValueError):
+            parse_utc_instant_iso_z("")
+
+    def test_rejects_invalid_iso(self) -> None:
+        """parse_utc_instant_iso_z: raises on malformed timestamp."""
+        with self.assertRaises(ValueError):
+            parse_utc_instant_iso_z("2026-13-40T99:99:99Z")
 
 
 class TestParseGuardianDatetime(unittest.TestCase):

@@ -8,6 +8,8 @@ from datetime import date
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from google import genai
+
 from src.config.settings import BriefingGeneratorConfig, BriefingTopicSpec, Settings
 from src.enums.briefing_date_filter import BriefingDateFilter
 from src.process.briefing_result import (
@@ -158,11 +160,12 @@ class BriefingGenerator:
         return "\n".join(parts)
 
     def _generate_with_gemini(self, prompt: str) -> str:
-        import google.generativeai as genai  # pylint: disable=import-outside-toplevel
+        client = genai.Client(api_key=self._api_key)
 
-        genai.configure(api_key=self._api_key)
-        model = genai.GenerativeModel(self._config.model)
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model=self._config.model,
+            contents=prompt,
+        )
         try:
             text = response.text
         except ValueError as exc:

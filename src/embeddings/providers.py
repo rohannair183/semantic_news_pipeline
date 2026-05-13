@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import List, Optional, Protocol
 
+from sentence_transformers import SentenceTransformer
+
+
 from src.enums.embedding_provider import EmbeddingProvider
 from src.utils.timer import Timer
 
@@ -29,8 +32,10 @@ class SentenceTransformerHandler:  # pylint: disable=too-few-public-methods
 
     def _load_model(self) -> object:
         if self._model is None:
-            # Lazy import so the dependency is only required at runtime.
-            from sentence_transformers import SentenceTransformer  # pylint: disable=import-outside-toplevel,import-error
+            if SentenceTransformer is None:
+                raise RuntimeError(
+                    "sentence-transformers is required to load embedding models",
+                )
             self._model = SentenceTransformer(self._model_name)
         return self._model
 
