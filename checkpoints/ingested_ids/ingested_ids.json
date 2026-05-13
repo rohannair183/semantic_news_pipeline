@@ -1,5 +1,5 @@
 {
-  "updated_at": "20260509T135107Z",
+  "updated_at": "20260513T213843Z",
   "ids": [
     "artanddesign/2026/may/08/several-venice-biennale-pavilions-shut-in-protest-over-inclusion-of-israel",
     "artanddesign/2026/may/08/the-glories-of-francisco-de-zurbarans-paintings",
@@ -11,6 +11,8 @@
     "australia-news/2026/may/09/farrer-byelection-analysis-angus-taylor-one-nation-coalition-loss",
     "australia-news/2026/may/09/farrer-byelection-one-nation-jim-chalmers-budget-grievance-politics-ntwnfb",
     "australia-news/2026/may/09/farrer-byelection-results-one-nation-michelle-milthorpe-coalition",
+    "australia-news/2026/may/14/morning-mail-thursday-ntwnfb",
+    "australia-news/live/2026/may/14/budget-reply-angus-taylor-anthony-albanese-jim-chalmers-tax-reform-property-investment-negative-gearing-capital-gains-housing-ntwnfb",
     "books/2026/may/09/israel-what-went-wrong-by-omer-bartov-review-the-long-view",
     "books/2026/may/09/the-rise-of-the-literary-nepo-baby-the-children-of-famous-novelists-on-following-in-their-parents-footsteps",
     "business/2026/may/08/great-western-railway-nationalised-december",
@@ -39,11 +41,14 @@
     "football/2026/may/09/keep-fighting-for-the-badge-arbeloa-makes-passionate-defence-of-real-madrid-fight-duo",
     "football/2026/may/09/liverpool-chelsea-premier-league-match-report",
     "football/2026/may/09/writers-on-their-world-cup-panini-collecting-days-we-all-remember-the-playground-twerp",
+    "football/2026/may/13/scottish-premiership-hearts-falkirk-match-report",
     "football/live/2026/may/08/weekend-football-countdown-live-news-previews",
     "football/live/2026/may/09/liverpool-v-chelsea-premier-league-live",
     "football/live/2026/may/09/manchester-city-look-to-stay-in-title-hunt-liverpool-host-chelsea-efl-playoffs-buildup-matchday-live",
     "football/live/2026/may/09/middlesbrough-v-southampton-championship-playoff-semi-final-first-leg-live",
     "football/live/2026/may/09/sunderland-v-manchester-united-fulham-v-bournemouth-and-more-football-live",
+    "football/live/2026/may/13/hearts-v-falkirk-motherwell-v-celtic-scottish-premiership-live",
+    "football/live/2026/may/13/manchester-city-v-crystal-palace-premier-league-live",
     "games/2026/may/09/australian-video-game-mix-tape",
     "global-development/2026/may/09/guardian-reporter-and-colleagues-detained-and-beaten-by-somali-police",
     "lifeandstyle/2026/may/09/blind-date-katie-jonathan",
@@ -65,6 +70,7 @@
     "politics/2026/may/09/labour-members-keir-starmer-party-fortunes-poll",
     "politics/2026/may/09/starmer-brings-gordon-brown-harriet-harman-ease-pressure-resign",
     "politics/2026/may/09/starmers-unpopularity-was-insurmountable-for-scottish-labour-and-a-boon-for-reform",
+    "politics/2026/may/13/starmer-sets-out-changes-to-education-health-and-courts-in-kings-speech",
     "politics/live/2026/may/07/elections-2026-local-scotland-wales-reform-green-labour-conservatives-live-news-updates",
     "politics/live/2026/may/09/may-elections-results-keir-starmer-labour-nigel-farage-reform-uk-politics-latest-news-updates",
     "politics/ng-interactive/2026/may/08/2026-elections-mapped-labour-reform-uk-greens-scotland-wales-england-local",
@@ -106,6 +112,8 @@
     "us-news/2026/may/09/trump-council-fema-disaster-preparedness",
     "us-news/2026/may/09/trump-counter-terrorism-policy-sebastian-gorka",
     "us-news/2026/may/09/tucson-arizona-ice-state-republicans",
+    "us-news/2026/may/13/jd-vance-anti-fraud-medicare-medicaid",
+    "us-news/2026/may/13/stacey-abrams-redistricting-voter-maps-republicans-voting-rights-act",
     "us-news/live/2026/may/08/donald-trump-republicans-tennessee-redistricting-maps-voting-rights-iran-latest-news-updates",
     "wellness/2026/may/08/cannabis-addiction-recovery",
     "world/2026/may/08/spanish-authorities-prepare-arrival-hantavirus-cruise-ship-hondius",
@@ -123,11 +131,11 @@
     "world/live/2026/may/09/peter-magyar-hungary-russia-ukraine-ceasefire-moscow-victory-day-parade-europe-latest-news-updates"
   ],
   "api_usage": {
-    "total_api_calls": 44,
+    "total_api_calls": 4,
     "error_api_calls": 0,
     "calls_by_profile": {
-      "main_daily": 22,
-      "main_weekly": 22
+      "main_daily": 2,
+      "main_weekly": 2
     }
   }
 }
