@@ -64,4 +64,4 @@ def retry_with_exponential_backoff(
                 config.max_delay_seconds,
             )
 
-    raise RuntimeError("unreachable retry state")
+    raise RuntimeError("unreachable retry state")  # pragma: no cover

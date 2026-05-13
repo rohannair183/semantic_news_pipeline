@@ -155,6 +155,33 @@ class TestSupabaseRetryClassifier(unittest.TestCase):
         self.assertTrue(_is_retryable_supabase_api_exception(ConnectionError("offline")))
         self.assertFalse(_is_retryable_supabase_api_exception(ValueError("bad")))
 
+    def test_storage_api_error_with_non_numeric_status(self) -> None:
+        """_is_retryable_supabase_api_exception: handles non-numeric status in StorageApiError."""
+        error = StorageApiError("timeout error", "code", "not_a_number")
+        self.assertTrue(_is_retryable_supabase_api_exception(error))
+
+    def test_storage_api_error_with_timeout_message(self) -> None:
+        """_is_retryable_supabase_api_exception: handles timeout strings in error message."""
+        error = StorageApiError("connection timeout", "code", None)
+        self.assertTrue(_is_retryable_supabase_api_exception(error))
+
+    def test_timeout_error(self) -> None:
+        """_is_retryable_supabase_api_exception: returns True for TimeoutError."""
+        self.assertTrue(_is_retryable_supabase_api_exception(TimeoutError("timeout")))
+
+    def test_httpcore_timeout_exception(self) -> None:
+        """_is_retryable_supabase_api_exception: recognizes httpcore timeout exceptions."""
+
+        class ReadTimeout(Exception):
+            """Mock ReadTimeout exception."""
+
+        self.assertTrue(_is_retryable_supabase_api_exception(ReadTimeout("read timeout")))
+
+    def test_httpx_client_timeout(self) -> None:
+        """_is_retryable_supabase_api_exception: recognizes httpx timeout in message."""
+        error = RuntimeError("httpx client timeout")
+        self.assertTrue(_is_retryable_supabase_api_exception(error))
+
 
 class TestVectorBucketSync(unittest.TestCase):
     """This class tests VectorBucketSync."""

@@ -860,6 +860,55 @@ class TestArticleNormalizerNormalizeDay(unittest.TestCase):
                 combined_df = pd.read_parquet(Path(written["2026-04-28"]))
                 self.assertEqual(list(combined_df["api_id"]), ["article-1", "article-2"])
 
+    def test_normalize_day_to_parquet_skips_other_days_checkpoints(self):
+        """normalize_day_to_parquet: ignores checkpoints from other days."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmppath = Path(tmpdir)
+            checkpoint_dir = tmppath / "checkpoints"
+            checkpoint_dir.mkdir()
+
+            checkpoint_path_27 = checkpoint_dir / "tech_daily_20260427T100000Z.json"
+            checkpoint_path_28 = checkpoint_dir / "tech_daily_20260428T100000Z.json"
+
+            payload_27 = {
+                "items": [
+                    {
+                        "id": "article-0",
+                        "webPublicationDate": "2026-04-27T10:00:00Z",
+                        "fields": {},
+                    }
+                ]
+            }
+            payload_28 = {
+                "items": [
+                    {
+                        "id": "article-1",
+                        "webPublicationDate": "2026-04-28T10:00:00Z",
+                        "fields": {},
+                    }
+                ]
+            }
+
+            checkpoint_path_27.write_text(json.dumps(payload_27), encoding="utf-8")
+            checkpoint_path_28.write_text(json.dumps(payload_28), encoding="utf-8")
+
+            with patch(
+                "src.ingestion.article_normalizer.Settings.load_article_normalizer_config"
+            ) as mock_load_config:
+                mock_load_config.return_value = _build_article_normalizer_config(
+                    tmppath,
+                    {
+                    "profiles": {"tech_daily": {}},
+                    "article_ingestor": {"checkpoint_dir": str(checkpoint_dir)},
+                    "article_normalizer": {"row_mappings": NORMALIZER_ROW_MAPPINGS.copy()},
+                    },
+                )
+                normalizer = ArticleNormalizer(configuration_root=tmppath)
+
+                written = normalizer.normalize_day_to_parquet(date(2026, 4, 28))
+                combined_df = pd.read_parquet(Path(written["2026-04-28"]))
+                self.assertEqual(list(combined_df["api_id"]), ["article-1"])
+
 
 if __name__ == "__main__":
     unittest.main()

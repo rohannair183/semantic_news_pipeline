@@ -126,6 +126,56 @@ class TestLoadSupabaseCredentials(unittest.TestCase):
                 Settings.load_supabase_credentials(load_dotenv=False)
         self.assertIn("SUPABASE_SERVICE_ROLE_KEY", str(raised.exception))
 
+    def test_load_supabase_credentials_raises_when_service_key_empty(self):
+        """load_supabase_credentials: requires non-empty SUPABASE_SERVICE_ROLE_KEY."""
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "https://x.supabase.co",
+                "SUPABASE_SERVICE_ROLE_KEY": "  ",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(ValueError) as raised:
+                Settings.load_supabase_credentials(load_dotenv=False)
+        self.assertIn("SUPABASE_SERVICE_ROLE_KEY", str(raised.exception))
+
+    def test_load_supabase_credentials_raises_when_url_empty(self):
+        """load_supabase_credentials: requires non-empty SUPABASE_URL."""
+        with patch.dict(
+            os.environ,
+            {
+                "SUPABASE_URL": "  ",
+                "SUPABASE_SERVICE_ROLE_KEY": "key",
+            },
+            clear=True,
+        ):
+            with self.assertRaises(ValueError) as raised:
+                Settings.load_supabase_credentials(load_dotenv=False)
+        self.assertIn("SUPABASE_URL", str(raised.exception))
+
+    def test_load_supabase_credentials_with_dotenv_loading(self):
+        """load_supabase_credentials: loads .env file when load_dotenv=True."""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            src_dir = root / "src" / "config"
+            src_dir.mkdir(parents=True)
+            fake_settings_path = src_dir / "settings.py"
+            env_path = root / ".env"
+            env_path.write_text(
+                "SUPABASE_URL=https://x.supabase.co\n"
+                "SUPABASE_SERVICE_ROLE_KEY=key_from_file\n",
+                encoding="utf-8",
+            )
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("src.config.settings.__file__", str(fake_settings_path)),
+            ):
+                url, key = Settings.load_supabase_credentials(load_dotenv=True)
+            self.assertEqual(url, "https://x.supabase.co")
+            self.assertEqual(key, "key_from_file")
+
 
 if __name__ == "__main__":  # pragma: no cover
     unittest.main()

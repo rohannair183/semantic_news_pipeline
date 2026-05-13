@@ -649,6 +649,55 @@ class TestGuardianClientGetArticlesByIds(GuardianClientTestCase):
         self.assertEqual(result["failed_count"], 0)
 
 
+class TestGuardianClientIsRetryableRequestException(GuardianClientTestCase):
+    """This class tests _is_retryable_request_exception."""
+
+    def test_returns_true_for_timeout(self) -> None:
+        """_is_retryable_request_exception: returns True for Timeout exceptions."""
+        exc = requests.Timeout("connection timeout")
+        result = GuardianClient._is_retryable_request_exception(exc)  # pylint: disable=protected-access
+        self.assertTrue(result)
+
+    def test_returns_true_for_connection_error(self) -> None:
+        """_is_retryable_request_exception: returns True for ConnectionError."""
+        exc = requests.ConnectionError("connection failed")
+        result = GuardianClient._is_retryable_request_exception(exc)  # pylint: disable=protected-access
+        self.assertTrue(result)
+
+    def test_returns_true_for_http_error_with_retryable_status(self) -> None:
+        """_is_retryable_request_exception: returns True for 5xx and rate-limit errors."""
+        response_429 = Mock()
+        response_429.status_code = 429
+        exc_429 = requests.HTTPError("rate limited", response=response_429)
+        self.assertTrue(GuardianClient._is_retryable_request_exception(exc_429))  # pylint: disable=protected-access
+
+        response_503 = Mock()
+        response_503.status_code = 503
+        exc_503 = requests.HTTPError("service unavailable", response=response_503)
+        self.assertTrue(GuardianClient._is_retryable_request_exception(exc_503))  # pylint: disable=protected-access
+
+    def test_returns_true_for_http_error_with_no_response(self) -> None:
+        """_is_retryable_request_exception: returns True for HTTPError with no response."""
+        exc = requests.HTTPError("unknown")
+        exc.response = None
+        result = GuardianClient._is_retryable_request_exception(exc)  # pylint: disable=protected-access
+        self.assertTrue(result)
+
+    def test_returns_false_for_http_error_with_non_retryable_status(self) -> None:
+        """_is_retryable_request_exception: returns False for 4xx non-rate-limit errors."""
+        response_400 = Mock()
+        response_400.status_code = 400
+        exc = requests.HTTPError("bad request", response=response_400)
+        result = GuardianClient._is_retryable_request_exception(exc)
+        self.assertFalse(result)
+
+    def test_returns_false_for_non_retryable_exception(self) -> None:
+        """_is_retryable_request_exception: returns False for other exceptions."""
+        exc = ValueError("invalid argument")
+        result = GuardianClient._is_retryable_request_exception(exc)  # pylint: disable=protected-access
+        self.assertFalse(result)
+
+
 class TestGuardianClientGetUsageCounts(GuardianClientTestCase):
     """This class tests get_usage_counts."""
 
