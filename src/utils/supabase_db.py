@@ -8,7 +8,7 @@ from urllib.parse import quote_plus, urlparse
 import psycopg
 from psycopg import sql
 from psycopg import OperationalError
-from supabase import create_client
+import supabase
 
 from src.config.settings import Settings
 from src.utils.pg_identifiers import validate_pg_identifier
@@ -68,7 +68,7 @@ def postgres_conninfo_from_supabase_credentials(*, load_dotenv: bool = True) -> 
 def create_supabase_service_client() -> Any:
     """Build a Supabase client using URL + service role key from the environment."""
     url, service_key = Settings.load_supabase_credentials()
-    return create_client(url, service_key)
+    return supabase.create_client(url, service_key)
 
 
 def ensure_briefing_persistence_table(
@@ -124,7 +124,14 @@ def ensure_briefing_persistence_table(
             print("Table created successfully")
     except OperationalError as exc:
         err = str(exc).lower()
-        print(err)
+        # Common DNS failure when db.<ref>.supabase.co cannot be resolved; give
+        # a clearer hint to configure SUPABASE_POSTGRES_URL or DATABASE_URL.
+        if "failed to resolve host" in err and "db." in err and ".supabase.co" in err:
+            raise RuntimeError(
+                "Unable to resolve Supabase DB host. Set SUPABASE_POSTGRES_URL or "
+                "DATABASE_URL to the dashboard connection string."
+            ) from exc
+        # Otherwise, re-raise the original OperationalError
         raise
 
 

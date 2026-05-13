@@ -10,7 +10,7 @@ from src.process.briefing_persistence import (
     BriefingPersistenceRunner,
     briefing_row_from_result,
 )
-from src.process.briefing_result import BriefingGenerationResult
+from src.process.briefing_result import BriefingGenerationResult, BriefingTopicContext
 
 
 class TestBriefingRowFromResult(unittest.TestCase):
@@ -152,3 +152,57 @@ briefing_persistence:
                 "t2",
                 postgres_conninfo="postgresql://local/db",
             )
+
+    def test_run_inserts_one_row_per_topic(self) -> None:  # pylint: disable=too-many-locals
+        """run: when result has topics, inserts one row per topic with topic columns."""
+        yaml_text = """\
+briefing_persistence:
+  table_name: t_topics
+  ensure_table: false
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            proc = root / "process"
+            proc.mkdir(parents=True)
+            (proc / "briefing_persistence.yaml").write_text(yaml_text, encoding="utf-8")
+
+            topic = BriefingTopicContext(
+                topic_name="T1",
+                vector_query="q",
+                date_filter="daily",
+                date_from_iso="2026-05-10",
+                date_to_iso="2026-05-12",
+                hits=(),
+            )
+            mock_result = BriefingGenerationResult(
+                briefing_text="b",
+                llm_prompt="p",
+                gemini_model="m",
+                anchor_day_iso="2026-05-12",
+                generated_at_iso="2026-05-12T12:00:00Z",
+                topics=(topic,),
+            )
+
+            mock_gen = MagicMock()
+            mock_gen.generate.return_value = mock_result
+            mock_client = MagicMock()
+            insert_chain = mock_client.schema.return_value.table.return_value.insert
+            insert_chain.return_value.execute.return_value = MagicMock()
+
+            with patch("src.process.briefing_persistence.Settings.load_repository_dotenv"):
+                runner = BriefingPersistenceRunner(
+                    configuration_root=root,
+                    briefing_generator=mock_gen,
+                    supabase_client_factory=lambda: mock_client,
+                )
+
+            out = runner.run()
+            self.assertIs(out, mock_result)
+            # insert called once for single topic
+            self.assertEqual(insert_chain.call_count, 1)
+            # verify the inserted payload included topic_name and topic_date_filter
+            insert_args = insert_chain.call_args_list[0][0][0]
+            self.assertIsInstance(insert_args, list)
+            inserted_row = insert_args[0]
+            self.assertEqual(inserted_row.get("topic_name"), "T1")
+            self.assertEqual(inserted_row.get("topic_date_filter"), "daily")

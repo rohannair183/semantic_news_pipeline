@@ -3,6 +3,7 @@
 import sys
 import unittest
 from unittest.mock import MagicMock
+from types import ModuleType
 
 import numpy as np
 
@@ -139,6 +140,21 @@ class TestSentenceTransformerHandler(unittest.TestCase):
 
         self.assertEqual(len(result), 1)
         self.assertAlmostEqual(result[0][0], 1.0)
+
+    def test_missing_sentence_transformer_class_raises(self) -> None:
+        """If sentence_transformers module lacks SentenceTransformer, raise RuntimeError."""
+        handler = SentenceTransformerHandler("test-model")
+        original = sys.modules.get("sentence_transformers")
+        # provide a real module object without SentenceTransformer attribute
+        sys.modules["sentence_transformers"] = ModuleType("sentence_transformers")
+        try:
+            with self.assertRaises(RuntimeError):
+                handler.embed(["x"])
+        finally:
+            if original is None:
+                sys.modules.pop("sentence_transformers", None)
+            else:
+                sys.modules["sentence_transformers"] = original
 
 
 if __name__ == "__main__":  # pragma: no cover
