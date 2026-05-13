@@ -1,4 +1,5 @@
 """Embedding provider registry and handlers used by Embedder."""
+# pylint: disable=import-error,invalid-name
 
 from __future__ import annotations
 
