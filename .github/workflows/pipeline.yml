@@ -2,6 +2,11 @@ name: Orchestrator pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "GitHub Environment containing pipeline secrets"
+        required: true
+        default: "production"
 
 permissions:
   contents: write
@@ -9,6 +14,7 @@ permissions:
 jobs:
   orchestrator-smoke:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
 
     steps:
       - name: Checkout repo
@@ -34,10 +40,15 @@ jobs:
             exit 1
           fi
 
-      - name: Run YAML orchestrator (full preset)
+      - name: Run YAML orchestrator (CI preset)
         env:
           GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
-        run: python -m src.application --config configuration/orchestration/orchestrator.yaml
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SUPABASE_POSTGRES_URL: ${{ secrets.SUPABASE_POSTGRES_URL }}
+        run: python -m src.application --config configuration/orchestration/orchestrator_ci.yaml
 
       - name: Commit and push pipeline outputs to main
         if: success()
