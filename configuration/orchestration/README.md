@@ -48,6 +48,7 @@ Supported `skip_when` keys:
 - `chunking`
 - `embeddings`
 - `vector_sync`
+- `briefing_persistence`
 
 ## `params` by task kind
 
@@ -83,9 +84,14 @@ Supported params:
 
 - `profile`: vector sync profile name; defaults to `default`
 
+### `briefing_persistence`
+
+No params are currently allowed.
+
 ## Runtime behavior
 
 - tasks execute in YAML order
 - disabled tasks are skipped without error
 - when `fail_fast` is true, a failed task prevents later tasks from running
+- briefing persistence is skipped when the latest persisted run is already on the current UTC day
 - local CLI entry point: [`../../src/application/__main__.py`](../../src/application/__main__.py)

@@ -3,11 +3,13 @@
 
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from src.process.briefing_persistence import (
     BriefingPersistenceRunner,
+    evaluate_briefing_persistence_skip,
     briefing_row_from_result,
 )
 from src.process.briefing_result import BriefingGenerationResult, BriefingTopicContext
@@ -206,3 +208,71 @@ briefing_persistence:
             inserted_row = insert_args[0]
             self.assertEqual(inserted_row.get("topic_name"), "T1")
             self.assertEqual(inserted_row.get("topic_date_filter"), "daily")
+
+
+class TestBriefingPersistenceSkipEvaluation(unittest.TestCase):
+    """This class tests evaluate_briefing_persistence_skip."""
+
+    def test_returns_skip_when_latest_run_is_today(self) -> None:
+        """evaluate_briefing_persistence_skip: skips when latest row is fresh."""
+        yaml_text = """\
+briefing_persistence:
+  table_name: t_daily
+  ensure_table: false
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            proc = root / "process"
+            proc.mkdir(parents=True)
+            (proc / "briefing_persistence.yaml").write_text(yaml_text, encoding="utf-8")
+
+            mock_client = MagicMock()
+            query_chain = mock_client.schema.return_value.table.return_value
+            select_chain = query_chain.select.return_value
+            order_chain = select_chain.order.return_value
+            limit_chain = order_chain.limit.return_value
+            limit_chain.execute.return_value = MagicMock(
+                data=[{"generated_at": "2026-05-13T08:30:00Z"}],
+            )
+
+            with patch("src.process.briefing_persistence.Settings.load_repository_dotenv"):
+                skip, reason = evaluate_briefing_persistence_skip(
+                    configuration_root=root,
+                    client_factory=lambda: mock_client,
+                    current_date=date(2026, 5, 13),
+                )
+
+        self.assertTrue(skip)
+        self.assertIn("2026-05-13", reason)
+
+    def test_returns_run_when_latest_run_is_stale(self) -> None:
+        """evaluate_briefing_persistence_skip: runs when latest row is older than today."""
+        yaml_text = """\
+briefing_persistence:
+  table_name: t_stale
+  ensure_table: false
+"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            proc = root / "process"
+            proc.mkdir(parents=True)
+            (proc / "briefing_persistence.yaml").write_text(yaml_text, encoding="utf-8")
+
+            mock_client = MagicMock()
+            query_chain = mock_client.schema.return_value.table.return_value
+            select_chain = query_chain.select.return_value
+            order_chain = select_chain.order.return_value
+            limit_chain = order_chain.limit.return_value
+            limit_chain.execute.return_value = MagicMock(
+                data=[{"generated_at": "2026-05-12T23:59:00Z"}],
+            )
+
+            with patch("src.process.briefing_persistence.Settings.load_repository_dotenv"):
+                skip, reason = evaluate_briefing_persistence_skip(
+                    configuration_root=root,
+                    client_factory=lambda: mock_client,
+                    current_date=date(2026, 5, 13),
+                )
+
+        self.assertFalse(skip)
+        self.assertEqual(reason, "")

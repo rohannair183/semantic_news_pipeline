@@ -47,6 +47,9 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             OrchestratorTaskKind.VECTOR_SYNC: (
                 "src.application.task_runners.VectorBucketSync"
             ),
+            OrchestratorTaskKind.BRIEFING_PERSISTENCE: (
+                "src.application.task_runners.BriefingPersistenceRunner"
+            ),
         }
         timer = Timer()
         runners = default_task_runner_map()
@@ -81,6 +84,7 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             skip_when=None,
             params=OrchestratorTaskParams(profile="z"),
         )
+        briefing_spec = _minimal_spec(OrchestratorTaskKind.BRIEFING_PERSISTENCE)
 
         spec_by_kind = {
             OrchestratorTaskKind.ARTICLE_INGESTOR: _minimal_spec(
@@ -93,6 +97,7 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
             OrchestratorTaskKind.CHUNKING: chunk_spec,
             OrchestratorTaskKind.EMBEDDINGS: embed_spec,
             OrchestratorTaskKind.VECTOR_SYNC: sync_spec,
+            OrchestratorTaskKind.BRIEFING_PERSISTENCE: briefing_spec,
         }
 
         for kind, target in mappings.items():
@@ -120,12 +125,15 @@ class TestOrchestratorTaskDispatcher(unittest.TestCase):
                         timer=timer,
                     )
                     mock_instance.embed_to_parquet.assert_called_once_with(profile="y")
-                else:
+                elif kind == OrchestratorTaskKind.VECTOR_SYNC:
                     ctor.assert_called_once_with(
                         configuration_root=fake_root,
                         timer=timer,
                     )
                     mock_instance.sync_profile_to_bucket.assert_called_once_with(profile="z")
+                else:
+                    ctor.assert_called_once_with(configuration_root=fake_root)
+                    mock_instance.run.assert_called_once_with()
 
 
 if __name__ == "__main__":  # pragma: no cover

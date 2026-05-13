@@ -5,6 +5,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 from src.application.orchestrator import Orchestrator
 from src.config.settings import Settings
@@ -46,6 +47,29 @@ class TestOrchestratorRepoYaml(unittest.TestCase):
         outcomes = {result.outcome for result in summary.task_results}
         self.assertIn("success", outcomes)
         self.assertIn("skipped_disabled", outcomes)
+
+    def test_orchestrator_yaml_includes_briefing_persistence_stage(self):
+        """load_orchestrator_config_from_path: default YAML wires briefing persistence."""
+        repo_root = Path(__file__).resolve().parents[2]
+        path = repo_root / "configuration" / "orchestration" / "orchestrator.yaml"
+        config = Settings.load_orchestrator_config_from_path(path)
+
+        kinds = [task.kind for task in config.tasks]
+        self.assertIn(OrchestratorTaskKind.BRIEFING_PERSISTENCE, kinds)
+
+        noop_map = {kind: _noop_runner for kind in OrchestratorTaskKind}
+        with mock.patch(
+            "src.application.orchestrator.evaluate_briefing_persistence_skip",
+            return_value=(True, "briefing persistence already ran on 2026-05-13"),
+        ):
+            summary = Orchestrator(config, runners=noop_map).run()
+
+        briefing_result = next(
+            result
+            for result in summary.task_results
+            if result.kind == OrchestratorTaskKind.BRIEFING_PERSISTENCE
+        )
+        self.assertEqual(briefing_result.outcome, "skipped_predicate")
 
     def test_load_via_custom_configuration_root(self):
         """load_orchestrator_config: honors alternate configuration directories."""

@@ -2,19 +2,35 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from src.config.settings import BriefingPersistenceConfig, Settings
 from src.process.briefing_generator import BriefingGenerator
 from src.process.briefing_result import BriefingGenerationResult
+from src.utils.dates import format_day_iso, parse_utc_instant_iso_z, utc_today_date
 from src.utils.supabase_db import (
     create_supabase_service_client,
+    fetch_latest_briefing_generated_at,
     ensure_briefing_persistence_table,
     insert_briefing_row,
 )
 
 SupabaseClientFactory = Callable[[], Any]
+
+
+def _generated_at_to_utc_day(value: Any) -> date:
+    """Normalize a persisted ``generated_at`` value to a UTC calendar day."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.date()
+        return value.astimezone(timezone.utc).date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        return parse_utc_instant_iso_z(value).date()
+    raise TypeError("generated_at must be a datetime or ISO-8601 string")
 
 
 def briefing_row_from_result(result: BriefingGenerationResult) -> Dict[str, Any]:
@@ -98,3 +114,29 @@ class BriefingPersistenceRunner:
                 row,
             )
         return result
+
+
+def evaluate_briefing_persistence_skip(
+    configuration_root: Optional[Path] = None,
+    *,
+    client_factory: Optional[SupabaseClientFactory] = None,
+    current_date: Optional[date] = None,
+) -> tuple[bool, str]:
+    """Return ``(skip, reason)`` when briefing persistence already ran today."""
+    Settings.load_repository_dotenv()
+    persist = Settings.load_briefing_persistence_config(
+        configuration_root=configuration_root,
+    )
+    client = (client_factory or create_supabase_service_client)()
+    latest_generated_at = fetch_latest_briefing_generated_at(
+        client,
+        persist.schema_name,
+        persist.table_name,
+    )
+    if latest_generated_at is None:
+        return False, ""
+    latest_day = _generated_at_to_utc_day(latest_generated_at)
+    today = current_date or utc_today_date()
+    if latest_day >= today:
+        return True, f"briefing persistence already ran on {format_day_iso(latest_day)}"
+    return False, ""

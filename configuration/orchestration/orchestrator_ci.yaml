@@ -24,3 +24,6 @@ tasks:
     enabled: false
     params:
       profile: default
+  - id: briefing_persistence
+    kind: briefing_persistence
+    enabled: false

@@ -32,6 +32,7 @@ This repository contains a working Python pipeline with YAML-driven orchestratio
 6. **Semantic retrieval**: embeds user queries and runs filtered similarity search over stored vectors.
 7. **Briefing generation**: retrieves topic context and produces multi-topic briefings with Gemini.
 8. **Briefing persistence**: stores generated briefings in Supabase/Postgres for later consumption.
+9. **Briefing persistence orchestration**: checks the latest persisted run and skips the job when it already ran today.
 
 ## System Components
 
@@ -165,12 +166,22 @@ If you only have a few minutes, these files give the best picture of the project
 - [`src/process/briefing_generator.py`](src/process/briefing_generator.py): retrieval-grounded Gemini briefings
 - [`src/process/briefing_persistence.py`](src/process/briefing_persistence.py): persistence layer
 
-## What’s in scope today
+## Today's Scope + Future Improvements
 
-This repository is focused on the backend pipeline and data flow. It does not currently include a polished end-user application UI. The strongest parts of the project today are:
+This repository is focused on the backend pipeline and data flow, with room to grow into a broader news intelligence platform. The strongest parts of the project today are:
 
-- pipeline orchestration
+- pipeline orchestration and operational control
 - configurable ingestion and transformation
 - vector search infrastructure
 - LLM-backed briefing generation
 - testing and CI discipline
+
+The next natural extensions for the project build on that foundation:
+
+- evaluation for embeddings and chunking to tune parameters and improve retrieval quality
+- API request tracking for Guardian usage, with automatic stopping when daily requests are exhausted
+- support for LLMs beyond Gemini
+- clustering topics into higher-level themes
+- trend detection across related stories
+- smarter retrieval ranking and filtering for briefing generation
+- richer monitoring and alerting around pipeline runs and data freshness

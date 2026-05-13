@@ -150,3 +150,28 @@ def insert_briefing_row(
         .insert([dict(row)])
         .execute()
     )
+
+
+def fetch_latest_briefing_generated_at(
+    client: Any,
+    schema_name: str,
+    table_name: str,
+) -> Optional[Any]:
+    """Return the latest persisted briefing ``generated_at`` value, if any."""
+    schema_sql = validate_pg_identifier(schema_name, field_name="schema_name")
+    table_sql = validate_pg_identifier(table_name, field_name="table_name")
+    response = (
+        client.schema(schema_sql)
+        .table(table_sql)
+        .select("generated_at")
+        .order("generated_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    rows = getattr(response, "data", None)
+    if not rows:
+        return None
+    first_row = rows[0]
+    if not isinstance(first_row, dict):
+        return None
+    return first_row.get("generated_at")

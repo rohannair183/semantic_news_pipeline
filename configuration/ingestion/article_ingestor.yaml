@@ -3,7 +3,7 @@ article_ingestor:
   profiles_to_run:
     - main_daily
     - main_weekly
-  limit_per_profile: 150
+  limit_per_profile: 1
   save_local_checkpoint: true
   checkpoint_dir: checkpoints/article_ingestor
   enable_usage_logging: true

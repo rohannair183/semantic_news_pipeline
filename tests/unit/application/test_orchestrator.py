@@ -227,6 +227,30 @@ class TestOrchestratorRun(unittest.TestCase):
         labels = {label for label, _elapsed in timer.records}
         self.assertTrue(any(label.startswith("orchestrator.task.") for label in labels))
 
+    def test_briefing_persistence_skip_check_records_without_running(self):
+        """Orchestrator.run: skips briefing persistence when freshness gate matches."""
+
+        invoked = mock.Mock()
+
+        config = OrchestratorConfig(
+            fail_fast=True,
+            tasks=(
+                _stub_spec("briefing", OrchestratorTaskKind.BRIEFING_PERSISTENCE),
+            ),
+        )
+        with mock.patch(
+            "src.application.orchestrator.evaluate_briefing_persistence_skip",
+            return_value=(True, "briefing persistence already ran on 2026-05-13"),
+        ) as mocked_skip:
+            summary = Orchestrator(
+                config,
+                runners={OrchestratorTaskKind.BRIEFING_PERSISTENCE: invoked},
+            ).run()
+
+        mocked_skip.assert_called_once()
+        invoked.assert_not_called()
+        self.assertEqual(summary.task_results[0].outcome, "skipped_predicate")
+
 
 class TestOrchestratorSummary(unittest.TestCase):
     """This class tests OrchestratorRunSummary helpers."""

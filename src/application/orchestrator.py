@@ -14,6 +14,7 @@ from src.config.settings import (
     OrchestratorTaskKind,
     Settings,
 )
+from src.process.briefing_persistence import evaluate_briefing_persistence_skip
 from src.utils.timer import Timer
 
 _ORCHESTRATOR_TASK_PREFIX = "orchestrator.task"
@@ -127,6 +128,43 @@ class Orchestrator:
                     f"SKIPPED ({skip_reason})"
                 )
                 continue
+            if spec.kind == OrchestratorTaskKind.BRIEFING_PERSISTENCE:
+                try:
+                    should_skip, skip_reason = evaluate_briefing_persistence_skip(
+                        self._configuration_root,
+                    )
+                except Exception as exc:  # pylint: disable=broad-exception-caught
+                    results.append(
+                        OrchestratorTaskResult(
+                            task_id=spec.task_id,
+                            kind=spec.kind,
+                            outcome="failed",
+                            elapsed_seconds=None,
+                            detail=str(exc),
+                        )
+                    )
+                    print(
+                        f"[orchestrator] task={spec.task_id!r} kind={spec.kind.value} "
+                        f"FAILED before dispatch: {exc}"
+                    )
+                    if self._config.fail_fast:
+                        halt = True
+                    continue
+                if should_skip:
+                    results.append(
+                        OrchestratorTaskResult(
+                            task_id=spec.task_id,
+                            kind=spec.kind,
+                            outcome="skipped_predicate",
+                            elapsed_seconds=None,
+                            detail=skip_reason,
+                        )
+                    )
+                    print(
+                        f"[orchestrator] task={spec.task_id!r} kind={spec.kind.value} "
+                        f"SKIPPED ({skip_reason})"
+                    )
+                    continue
             runner = self._runners.get(spec.kind)
             if runner is None:
                 results.append(

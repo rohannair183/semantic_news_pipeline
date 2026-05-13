@@ -25,3 +25,7 @@ tasks:
       missing_env_var: SUPABASE_SERVICE_ROLE_KEY
     params:
       profile: default
+  - id: briefing_persistence
+    kind: briefing_persistence
+    skip_when:
+      missing_env_var: SUPABASE_SERVICE_ROLE_KEY

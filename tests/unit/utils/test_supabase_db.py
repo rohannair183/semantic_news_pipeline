@@ -10,6 +10,7 @@ import psycopg
 from src.utils import supabase_db as supabase_db_module
 from src.utils.supabase_db import (
     create_supabase_service_client,
+    fetch_latest_briefing_generated_at,
     ensure_briefing_persistence_table,
     insert_briefing_row,
     parse_supabase_project_ref,
@@ -229,3 +230,33 @@ class TestInsertBriefingRow(unittest.TestCase):
         insert_chain.insert.assert_called_once_with(
             [{"anchor_day_iso": "2026-05-12", "briefing_text": "x"}],
         )
+
+
+class TestFetchLatestBriefingGeneratedAt(unittest.TestCase):
+    """This class tests fetch_latest_briefing_generated_at."""
+
+    def test_returns_latest_generated_at_value(self) -> None:
+        """fetch_latest_briefing_generated_at: reads the newest generated_at field."""
+        execute_ret = MagicMock(data=[{"generated_at": "2026-05-13T00:00:00Z"}])
+        query_chain = MagicMock()
+        select_chain = query_chain.select.return_value
+        order_chain = select_chain.order.return_value
+        limit_chain = order_chain.limit.return_value
+        limit_chain.execute.return_value = execute_ret
+        table_chain = MagicMock()
+        table_chain.table.return_value = query_chain
+        client = MagicMock()
+        client.schema.return_value = table_chain
+
+        value = fetch_latest_briefing_generated_at(
+            client,
+            "public",
+            "news_briefings",
+        )
+
+        self.assertEqual(value, "2026-05-13T00:00:00Z")
+        client.schema.assert_called_once_with("public")
+        table_chain.table.assert_called_once_with("news_briefings")
+        query_chain.select.assert_called_once_with("generated_at")
+        select_chain.order.assert_called_once_with("generated_at", desc=True)
+        order_chain.limit.assert_called_once_with(1)
