@@ -1,5 +1,5 @@
 {
-  "updated_at": "20260509T135107Z",
+  "updated_at": "20260513T205209Z",
   "ids": [
     "artanddesign/2026/may/08/several-venice-biennale-pavilions-shut-in-protest-over-inclusion-of-israel",
     "artanddesign/2026/may/08/the-glories-of-francisco-de-zurbarans-paintings",
@@ -44,6 +44,8 @@
     "football/live/2026/may/09/manchester-city-look-to-stay-in-title-hunt-liverpool-host-chelsea-efl-playoffs-buildup-matchday-live",
     "football/live/2026/may/09/middlesbrough-v-southampton-championship-playoff-semi-final-first-leg-live",
     "football/live/2026/may/09/sunderland-v-manchester-united-fulham-v-bournemouth-and-more-football-live",
+    "football/live/2026/may/13/hearts-v-falkirk-motherwell-v-celtic-scottish-premiership-live",
+    "football/live/2026/may/13/manchester-city-v-crystal-palace-premier-league-live",
     "games/2026/may/09/australian-video-game-mix-tape",
     "global-development/2026/may/09/guardian-reporter-and-colleagues-detained-and-beaten-by-somali-police",
     "lifeandstyle/2026/may/09/blind-date-katie-jonathan",
@@ -123,11 +125,11 @@
     "world/live/2026/may/09/peter-magyar-hungary-russia-ukraine-ceasefire-moscow-victory-day-parade-europe-latest-news-updates"
   ],
   "api_usage": {
-    "total_api_calls": 44,
+    "total_api_calls": 4,
     "error_api_calls": 0,
     "calls_by_profile": {
-      "main_daily": 22,
-      "main_weekly": 22
+      "main_daily": 2,
+      "main_weekly": 2
     }
   }
 }
