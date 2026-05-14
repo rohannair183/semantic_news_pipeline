@@ -1,0 +1,5 @@
+{"event": "guardian_api_call", "timestamp": "20260514T024459Z", "profile": "main_daily", "path": "/search", "status_code": 200, "status": "success"}
+{"event": "guardian_api_call", "timestamp": "20260514T024500Z", "profile": "main_daily", "path": "/us-news/live/2026/may/14/donald-trump-china-xi-jinping-live-updates-talks-meeting-summit-visit-beijing-latest-news", "status_code": 200, "status": "success"}
+{"event": "guardian_api_call", "timestamp": "20260514T024501Z", "profile": "main_weekly", "path": "/search", "status_code": 200, "status": "success"}
+{"event": "guardian_api_call", "timestamp": "20260514T024502Z", "profile": "main_weekly", "path": "/australia-news/2026/may/14/labor-budget-2026-tax-reforms-shares-equity-portfolios-home-ownership", "status_code": 200, "status": "success"}
+{"run_timestamp": "20260514T024458Z", "profile_count": 2, "profiles_run": ["main_daily", "main_weekly"], "searched_count": 4, "fetched_count": 2, "skipped_existing_count": 2, "failed_count": 0, "api_usage": {"total_api_calls": 4, "error_api_calls": 0, "calls_by_profile": {"main_daily": 2, "main_weekly": 2}}, "event": "ingestion_summary", "timestamp": "20260514T024502Z"}
