@@ -124,14 +124,7 @@ def ensure_briefing_persistence_table(
             print("Table created successfully")
     except OperationalError as exc:
         err = str(exc).lower()
-        # Common DNS failure when db.<ref>.supabase.co cannot be resolved; give
-        # a clearer hint to configure SUPABASE_POSTGRES_URL or DATABASE_URL.
-        if "failed to resolve host" in err and "db." in err and ".supabase.co" in err:
-            raise RuntimeError(
-                "Unable to resolve Supabase DB host. Set SUPABASE_POSTGRES_URL or "
-                "DATABASE_URL to the dashboard connection string."
-            ) from exc
-        # Otherwise, re-raise the original OperationalError
+        print(f"OperationalError during table creation: {exc}")
         raise
 
 

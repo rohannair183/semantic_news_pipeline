@@ -29,7 +29,20 @@ def _generated_at_to_utc_day(value: Any) -> date:
     if isinstance(value, date):
         return value
     if isinstance(value, str):
-        return parse_utc_instant_iso_z(value).date()
+        candidate = value.strip()
+        if not candidate:
+            raise ValueError("generated_at string must be non-empty")
+        # Accept either Z-suffixed UTC instants or offsets like +00:00 (Supabase may return either)
+        if candidate.endswith("Z"):
+            dt = parse_utc_instant_iso_z(candidate)
+        else:
+            try:
+                dt = datetime.fromisoformat(candidate)
+            except ValueError as exc:
+                raise ValueError("generated_at string is not valid ISO-8601") from exc
+        if dt.tzinfo is None:
+            return dt.date()
+        return dt.astimezone(timezone.utc).date()
     raise TypeError("generated_at must be a datetime or ISO-8601 string")
 
 
