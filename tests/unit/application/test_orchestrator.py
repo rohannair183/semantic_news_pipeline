@@ -61,6 +61,26 @@ class TestEvaluateOrchestratorSkipWhen(unittest.TestCase):
             os.environ[unique_name] = "x"
             self.assertEqual(evaluate_orchestrator_skip_when(skip), (False, ""))
 
+    def test_missing_env_vars_skip_when_any_are_unset(self):
+        """evaluate_orchestrator_skip_when: skips when any required env is absent."""
+        skip = OrchestratorSkipWhen(
+            missing_env_vars=(
+                "ORCH_MULTI_GUARD_VAR_ONE",
+                "ORCH_MULTI_GUARD_VAR_TWO",
+            )
+        )
+        with mock.patch.dict(os.environ):
+            os.environ["ORCH_MULTI_GUARD_VAR_ONE"] = "x"
+            os.environ.pop("ORCH_MULTI_GUARD_VAR_TWO", None)
+            should_skip, reason = evaluate_orchestrator_skip_when(skip)
+        self.assertTrue(should_skip)
+        self.assertIn("ORCH_MULTI_GUARD_VAR_TWO", reason)
+
+        with mock.patch.dict(os.environ):
+            os.environ["ORCH_MULTI_GUARD_VAR_ONE"] = "x"
+            os.environ["ORCH_MULTI_GUARD_VAR_TWO"] = "y"
+            self.assertEqual(evaluate_orchestrator_skip_when(skip), (False, ""))
+
 
 class TestOrchestratorRun(unittest.TestCase):
     """This class tests Orchestrator."""

@@ -2,6 +2,11 @@ name: Orchestrator pipeline
 
 on:
   workflow_dispatch:
+    inputs:
+      target_environment:
+        description: GitHub Environment that stores pipeline secrets
+        required: true
+        type: environment
 
 permissions:
   contents: write
@@ -9,6 +14,14 @@ permissions:
 jobs:
   orchestrator-smoke:
     runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    env:
+      GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_POSTGRES_URL: ${{ secrets.SUPABASE_POSTGRES_URL }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
       - name: Checkout repo
@@ -19,20 +32,18 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
+
       - name: Install project, CI tooling, and runtime (embeddings)
         run: |
-          python -m pip install --upgrade pip
           # [runtime] pulls sentence-transformers (embeddings YAML default provider).
-          pip install -e ".[ci,runtime]"
+          uv pip install --system -e ".[ci,runtime]"
 
       - name: Fail fast if ingestion secret missing
-        env:
-          GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_POSTGRES_URL: ${{ secrets.SUPABASE_POSTGRES_URL }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
           missing=0
           for secret_name in \
@@ -43,7 +54,7 @@ jobs:
             DATABASE_URL \
             GEMINI_API_KEY; do
             if [ -z "${!secret_name}" ]; then
-              echo "::error title=Missing secret::Add ${secret_name} under Settings -> Secrets and variables -> Actions (or attach an Environment secret with the required key)."
+              echo "::error title=Missing environment secret::Add ${secret_name} to the selected GitHub Environment under Settings -> Environments."
               missing=1
             fi
           done
@@ -51,14 +62,58 @@ jobs:
             exit 1
           fi
 
+      - name: Create .env from GitHub secrets
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          def format_env_line(name: str, value: str) -> str:
+              if any(ch in value for ch in "\n\r\"'"):
+                  escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+                  return f'{name}="{escaped}"'
+              return f"{name}={value}"
+
+          env_names = (
+              "GUARDIAN_API_KEY",
+              "SUPABASE_URL",
+              "SUPABASE_SERVICE_ROLE_KEY",
+              "SUPABASE_POSTGRES_URL",
+              "DATABASE_URL",
+              "GEMINI_API_KEY",
+          )
+          lines = [format_env_line(name, os.environ.get(name, "")) for name in env_names]
+          Path(".env").write_text("\n".join(lines) + "\n", encoding="utf-8")
+          os.chmod(".env", 0o600)
+          PY
+
+      - name: Debug Supabase connectivity & env
+        run: |
+          python - <<'PY'
+          import os, urllib.parse, socket
+          def show(name):
+              v = os.environ.get(name)
+              print(f"{name} set: {bool(v)}")
+              if v:
+                  try:
+                      p = urllib.parse.urlparse(v)
+                      host = p.hostname or v.split('@')[-1].split(':')[0]
+                      port = p.port or (5432 if p.scheme in ('postgres','postgresql','') else None)
+                  except Exception:
+                      host = v
+                      port = None
+                  print(f"  host={host}, port={port}")
+                  try:
+                      addrs = socket.getaddrinfo(host, port or 0, proto=socket.IPPROTO_TCP)
+                      ips = sorted({ai[4][0] for ai in addrs})
+                      print('  resolves to:', ips)
+                  except Exception as e:
+                      print('  resolve error:', e)
+          show('SUPABASE_POSTGRES_URL')
+          show('SUPABASE_URL')
+          PY
+
       - name: Run YAML orchestrator (full preset)
-        env:
-          GUARDIAN_API_KEY: ${{ secrets.GUARDIAN_API_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          SUPABASE_POSTGRES_URL: ${{ secrets.SUPABASE_POSTGRES_URL }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python -m src.application --config configuration/orchestration/orchestrator.yaml
 
       - name: Commit and push pipeline outputs to main

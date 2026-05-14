@@ -17,6 +17,8 @@ tasks:
     enabled: true
     skip_when:
       missing_env_var: ...
+      missing_env_vars:
+        - ...
     params:
       ...
 ```
@@ -39,6 +41,7 @@ Each task supports:
 Supported `skip_when` keys:
 
 - `missing_env_var`: skip the task when this environment variable is absent or empty
+- `missing_env_vars`: skip the task when any listed environment variable is absent or empty
 
 ## Supported task kinds
 
