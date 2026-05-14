@@ -164,21 +164,22 @@ class Settings:
     ) -> Optional[str]:
         """Return a Postgres libpq URI from the environment when configured.
 
-        Return the explicit `SUPABASE_POSTGRES_URL` value when configured.
+        Used for DDL (e.g. ``CREATE TABLE``) when the derived ``db.<ref>.supabase.co``
+        host is unavailable. Checks ``SUPABASE_POSTGRES_URL`` first, then ``DATABASE_URL``.
+        Copy the value from Supabase Dashboard → Database → connection string (URI).
 
-        This method no longer falls back to a derived host or to a generic
-        ``DATABASE_URL``. For DDL operations CI and other deployments must set
-        ``SUPABASE_POSTGRES_URL`` (copy from Supabase Dashboard → Database → Connection string).
-
-        When ``load_dotenv`` is true, after the usual ``.env`` merge, that key is
+        When ``load_dotenv`` is true, after the usual ``.env`` merge, those two keys are
         re-read from ``.env`` so a non-empty file value overrides an empty shell export.
         """
         if load_dotenv:
             cls._load_env_file()
-            cls._merge_dotenv_values_for_keys_always(("SUPABASE_POSTGRES_URL",))
-        raw = os.getenv("SUPABASE_POSTGRES_URL")
-        if raw and str(raw).strip():
-            return str(raw).strip()
+            cls._merge_dotenv_values_for_keys_always(
+                ("SUPABASE_POSTGRES_URL", "DATABASE_URL"),
+            )
+        for key in ("SUPABASE_POSTGRES_URL", "DATABASE_URL"):
+            raw = os.getenv(key)
+            if raw and str(raw).strip():
+                return str(raw).strip()
         return None
 
     @classmethod

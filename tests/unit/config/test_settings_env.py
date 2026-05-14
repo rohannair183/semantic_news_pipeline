@@ -194,10 +194,14 @@ class TestLoadOptionalPostgresConninfo(unittest.TestCase):
         self.assertEqual(uri, "postgresql://first/db")
 
     def test_returns_database_url_when_postgres_url_missing(self) -> None:
-        """load_optional_postgres_conninfo: returns None when SUPABASE_POSTGRES_URL missing."""
-        with patch.dict(os.environ, {"DATABASE_URL": " postgresql://pool/db "}, clear=True):
+        """load_optional_postgres_conninfo: falls back to DATABASE_URL."""
+        with patch.dict(
+            os.environ,
+            {"DATABASE_URL": " postgresql://pool/db "},
+            clear=True,
+        ):
             uri = Settings.load_optional_postgres_conninfo(load_dotenv=False)
-        self.assertIsNone(uri)
+        self.assertEqual(uri, "postgresql://pool/db")
 
     def test_returns_none_when_unset(self) -> None:
         """load_optional_postgres_conninfo: returns None when neither URI is set."""
@@ -206,7 +210,7 @@ class TestLoadOptionalPostgresConninfo(unittest.TestCase):
         self.assertIsNone(uri)
 
     def test_load_dotenv_merges_env_file(self) -> None:
-        """load_optional_postgres_conninfo: merges repository .env when load_dotenv is True."""
+        """load_optional_postgres_conninfo: when load_dotenv True, merges repository .env first."""
         with patch.object(Settings, "_load_env_file") as mock_load:
             with patch.object(
                 Settings,
@@ -219,10 +223,10 @@ class TestLoadOptionalPostgresConninfo(unittest.TestCase):
                 ):
                     Settings.load_optional_postgres_conninfo(load_dotenv=True)
         mock_load.assert_called_once()
-        mock_merge.assert_called_once_with(("SUPABASE_POSTGRES_URL",))
+        mock_merge.assert_called_once_with(("SUPABASE_POSTGRES_URL", "DATABASE_URL"))
 
     def test_dotenv_database_url_overrides_empty_shell_value(self) -> None:
-        """load_optional_postgres_conninfo: DATABASE_URL is ignored."""
+        """load_optional_postgres_conninfo: .env DATABASE_URL wins when shell exports are empty."""
         with tempfile.TemporaryDirectory() as tmp_dir:
             env_path = Path(tmp_dir) / ".env"
             env_path.write_text(
@@ -242,7 +246,7 @@ class TestLoadOptionalPostgresConninfo(unittest.TestCase):
                 ),
             ):
                 uri = Settings.load_optional_postgres_conninfo(load_dotenv=True)
-        self.assertIsNone(uri)
+        self.assertEqual(uri, "postgresql://from-dotenv/db")
 
     def test_merge_dotenv_skips_comments_blank_and_irrelevant_keys(self) -> None:
         """_merge_dotenv_values_for_keys_always: ignores comments, blanks, and other keys."""

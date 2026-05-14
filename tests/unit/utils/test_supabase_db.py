@@ -13,8 +13,38 @@ from src.utils.supabase_db import (
     fetch_latest_briefing_generated_at,
     ensure_briefing_persistence_table,
     insert_briefing_row,
+    parse_supabase_project_ref,
     postgres_conninfo_from_supabase_credentials,
 )
+
+
+class TestParseSupabaseProjectRef(unittest.TestCase):
+    """This class tests parse_supabase_project_ref."""
+
+    def test_extracts_ref_from_https_url(self) -> None:
+        """parse_supabase_project_ref: reads project ref from API URL."""
+        self.assertEqual(
+            parse_supabase_project_ref("https://abcdefghijklmnop.supabase.co"),
+            "abcdefghijklmnop",
+        )
+
+    def test_accepts_whitespace_and_trailing_slash(self) -> None:
+        """parse_supabase_project_ref: tolerates surrounding whitespace."""
+        self.assertEqual(
+            parse_supabase_project_ref("  https://myproj.supabase.co/  "),
+            "myproj",
+        )
+
+    def test_rejects_non_supabase_host(self) -> None:
+        """parse_supabase_project_ref: raises when hostname is not *.supabase.co."""
+        with self.assertRaises(ValueError) as ctx:
+            parse_supabase_project_ref("https://example.com")
+        self.assertIn("SUPABASE_URL", str(ctx.exception))
+
+    def test_rejects_nested_subdomain(self) -> None:
+        """parse_supabase_project_ref: raises when ref label contains a dot."""
+        with self.assertRaises(ValueError):
+            parse_supabase_project_ref("https://a.b.supabase.co")
 
 
 class TestPostgresConninfoFromSupabaseCredentials(unittest.TestCase):
@@ -35,7 +65,7 @@ class TestPostgresConninfoFromSupabaseCredentials(unittest.TestCase):
         self.assertEqual(uri, "postgresql://pool:6543/postgres")
 
     def test_uses_database_url_when_postgres_url_missing(self) -> None:
-        """postgres_conninfo_from_supabase_credentials: missing URI raises."""
+        """postgres_conninfo_from_supabase_credentials: uses DATABASE_URL when set."""
         with patch.dict(
             os.environ,
             {
@@ -45,11 +75,11 @@ class TestPostgresConninfoFromSupabaseCredentials(unittest.TestCase):
             },
             clear=True,
         ):
-            with self.assertRaises(RuntimeError):
-                postgres_conninfo_from_supabase_credentials(load_dotenv=False)
+            uri = postgres_conninfo_from_supabase_credentials(load_dotenv=False)
+        self.assertEqual(uri, "postgresql://dbhost/postgres")
 
     def test_builds_direct_postgres_uri(self) -> None:
-        """postgres_conninfo_from_supabase_credentials: when no explicit URI present, raises."""
+        """postgres_conninfo_from_supabase_credentials: encodes key and sets sslmode."""
         with patch.object(
             supabase_db_module.Settings,
             "load_supabase_credentials",
@@ -60,8 +90,11 @@ class TestPostgresConninfoFromSupabaseCredentials(unittest.TestCase):
                 "load_optional_postgres_conninfo",
                 return_value=None,
             ):
-                with self.assertRaises(RuntimeError):
-                    postgres_conninfo_from_supabase_credentials(load_dotenv=False)
+                uri = postgres_conninfo_from_supabase_credentials(load_dotenv=False)
+        self.assertTrue(uri.startswith("postgresql://postgres:"))
+        self.assertIn("secret%26token", uri)
+        self.assertIn("@db.abcxyz.supabase.co:5432/postgres", uri)
+        self.assertIn("sslmode=require", uri)
 
 
 class TestCreateSupabaseServiceClient(unittest.TestCase):
