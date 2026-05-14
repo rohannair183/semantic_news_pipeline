@@ -13,9 +13,11 @@ class TestDnsErrorVariants(unittest.TestCase):
     """Ensure different DNS error message variants are wrapped with a helpful hint."""
 
     def test_could_not_translate_host_name_variant(self) -> None:
+        """ensure_briefing_persistence_table wraps 'could not translate' errors."""
+        msg = "could not translate host name 'db.x.supabase.co'"
         with unittest.mock.patch(
             "psycopg.connect",
-            side_effect=psycopg.OperationalError("could not translate host name 'db.x.supabase.co'"),
+            side_effect=psycopg.OperationalError(msg),
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 supabase_db_module.ensure_briefing_persistence_table(
@@ -24,9 +26,11 @@ class TestDnsErrorVariants(unittest.TestCase):
         self.assertIn("SUPABASE_POSTGRES_URL", str(ctx.exception))
 
     def test_temporary_failure_in_name_resolution_variant(self) -> None:
+        """ensure_briefing_persistence_table wraps temporary name resolution failures."""
+        msg = "temporary failure in name resolution"
         with unittest.mock.patch(
             "psycopg.connect",
-            side_effect=psycopg.OperationalError("temporary failure in name resolution"),
+            side_effect=psycopg.OperationalError(msg),
         ):
             with self.assertRaises(RuntimeError) as ctx:
                 supabase_db_module.ensure_briefing_persistence_table(
