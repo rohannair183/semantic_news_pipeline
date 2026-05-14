@@ -127,11 +127,13 @@ python -m src.application --mode test
 
 ## Recreate it in GitHub Actions
 
-To run the pipeline from GitHub Actions, add the same secrets in your GitHub repository:
+To run the pipeline from GitHub Actions, create a GitHub Environment for the pipeline and add the same secrets there:
 
-1. Go to `Settings -> Secrets and variables -> Actions`.
-2. Add `GUARDIAN_API_KEY` for the orchestrator workflow.
-3. Add any additional secrets your enabled stages require, such as `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY`.
+1. Go to `Settings -> Environments`.
+2. Create or open the environment you want the workflow to use.
+3. Add `GUARDIAN_API_KEY` for the orchestrator workflow.
+4. Add any additional secrets your enabled stages require, such as `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `GEMINI_API_KEY`.
+5. When you manually start [`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml), select that environment in the `target_environment` input so the job can read its secrets.
 
 The repo uses two workflows:
 

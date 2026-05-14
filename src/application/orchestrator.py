@@ -47,11 +47,22 @@ def evaluate_orchestrator_skip_when(
     skip_when: Optional[OrchestratorSkipWhen],
 ) -> Tuple[bool, str]:
     """Return ``(skip, reason)`` when skip guards apply."""
-    if skip_when is None or skip_when.missing_env_var is None:
+    if skip_when is None:
         return False, ""
-    env_name = skip_when.missing_env_var
-    if not os.environ.get(env_name):
-        return True, f"missing environment variable {env_name!r}"
+    required_env_vars: list[str] = []
+    if skip_when.missing_env_var is not None:
+        required_env_vars.append(skip_when.missing_env_var)
+    for env_name in skip_when.missing_env_vars:
+        if env_name not in required_env_vars:
+            required_env_vars.append(env_name)
+    if not required_env_vars:
+        return False, ""
+    missing_env_vars = [
+        env_name for env_name in required_env_vars if not os.environ.get(env_name)
+    ]
+    if missing_env_vars:
+        joined = ", ".join(repr(env_name) for env_name in missing_env_vars)
+        return True, f"missing environment variables {joined}"
     return False, ""
 
 

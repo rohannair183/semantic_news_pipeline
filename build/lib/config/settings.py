@@ -164,22 +164,21 @@ class Settings:
     ) -> Optional[str]:
         """Return a Postgres libpq URI from the environment when configured.
 
-        Used for DDL (e.g. ``CREATE TABLE``) when the derived ``db.<ref>.supabase.co``
-        host is unavailable. Checks ``SUPABASE_POSTGRES_URL`` first, then ``DATABASE_URL``.
-        Copy the value from Supabase Dashboard → Database → connection string (URI).
+        Return the explicit `SUPABASE_POSTGRES_URL` value when configured.
 
-        When ``load_dotenv`` is true, after the usual ``.env`` merge, those two keys are
+        This method no longer falls back to a derived host or to a generic
+        ``DATABASE_URL``. For DDL operations CI and other deployments must set
+        ``SUPABASE_POSTGRES_URL`` (copy from Supabase Dashboard → Database → Connection string).
+
+        When ``load_dotenv`` is true, after the usual ``.env`` merge, that key is
         re-read from ``.env`` so a non-empty file value overrides an empty shell export.
         """
         if load_dotenv:
             cls._load_env_file()
-            cls._merge_dotenv_values_for_keys_always(
-                ("SUPABASE_POSTGRES_URL", "DATABASE_URL"),
-            )
-        for key in ("SUPABASE_POSTGRES_URL", "DATABASE_URL"):
-            raw = os.getenv(key)
-            if raw and str(raw).strip():
-                return str(raw).strip()
+            cls._merge_dotenv_values_for_keys_always(("SUPABASE_POSTGRES_URL",))
+        raw = os.getenv("SUPABASE_POSTGRES_URL")
+        if raw and str(raw).strip():
+            return str(raw).strip()
         return None
 
     @classmethod
@@ -877,19 +876,41 @@ class Settings:
             return None
         if not isinstance(raw, dict):
             raise ValueError(f"{field_prefix} must be a mapping when provided")
-        allowed = {"missing_env_var"}
+        allowed = {"missing_env_var", "missing_env_vars"}
         unknown = set(raw.keys()) - allowed
         if unknown:
             joined = ", ".join(sorted(unknown))
             raise ValueError(f"{field_prefix} has unknown keys: {joined}")
         missing_env = raw.get("missing_env_var")
-        if missing_env is None:
-            return OrchestratorSkipWhen(missing_env_var=None)
-        if not isinstance(missing_env, str) or not missing_env.strip():
+        if missing_env is not None and (
+            not isinstance(missing_env, str) or not missing_env.strip()
+        ):
             raise ValueError(
                 f"{field_prefix}.missing_env_var must be a non-empty string when provided"
             )
-        return OrchestratorSkipWhen(missing_env_var=missing_env.strip())
+        raw_missing_env_vars = raw.get("missing_env_vars")
+        if raw_missing_env_vars is None:
+            missing_env_vars: tuple[str, ...] = ()
+        else:
+            if not isinstance(raw_missing_env_vars, list) or not raw_missing_env_vars:
+                raise ValueError(
+                    f"{field_prefix}.missing_env_vars must be a non-empty list when provided"
+                )
+            normalized_env_vars: list[str] = []
+            for index, env_name in enumerate(raw_missing_env_vars):
+                if not isinstance(env_name, str) or not env_name.strip():
+                    raise ValueError(
+                        f"{field_prefix}.missing_env_vars[{index}] must be a non-empty string"
+                    )
+                normalized_env_vars.append(env_name.strip())
+            missing_env_vars = tuple(normalized_env_vars)
+        normalized_missing_env = None
+        if missing_env is not None:
+            normalized_missing_env = missing_env.strip()
+        return OrchestratorSkipWhen(
+            missing_env_var=normalized_missing_env,
+            missing_env_vars=missing_env_vars,
+        )
 
     @classmethod
     def _parse_orchestrator_task_params(
@@ -1790,6 +1811,7 @@ class OrchestratorSkipWhen:
     """Optional guard parsed from orchestrator YAML ``skip_when``."""
 
     missing_env_var: Optional[str] = None
+    missing_env_vars: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
