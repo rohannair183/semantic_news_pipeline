@@ -123,8 +123,17 @@ def ensure_briefing_persistence_table(
             conn.commit()
             print("Table created successfully")
     except OperationalError as exc:
-        err = str(exc).lower()
+        err = str(exc)
+        low = err.lower()
         print(f"OperationalError during table creation: {exc}")
+        # Common DNS resolution failures for Supabase managed DB use hostnames
+        # like db.<project_ref>.supabase.co. When these fail to resolve, surface
+        # a clearer RuntimeError hinting at using SUPABASE_POSTGRES_URL or
+        # DATABASE_URL instead of the derived host.
+        if "failed to resolve host 'db." in low or "could not translate host name 'db." in low or "name or service not known" in low or "temporary failure in name resolution" in low:
+            raise RuntimeError(
+                "Unable to resolve Supabase DB host. If running in CI or a network-restricted environment, set SUPABASE_POSTGRES_URL or DATABASE_URL to a reachable Postgres URI."
+            ) from exc
         raise
 
 
