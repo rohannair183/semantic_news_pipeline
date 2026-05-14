@@ -876,19 +876,41 @@ class Settings:
             return None
         if not isinstance(raw, dict):
             raise ValueError(f"{field_prefix} must be a mapping when provided")
-        allowed = {"missing_env_var"}
+        allowed = {"missing_env_var", "missing_env_vars"}
         unknown = set(raw.keys()) - allowed
         if unknown:
             joined = ", ".join(sorted(unknown))
             raise ValueError(f"{field_prefix} has unknown keys: {joined}")
         missing_env = raw.get("missing_env_var")
-        if missing_env is None:
-            return OrchestratorSkipWhen(missing_env_var=None)
-        if not isinstance(missing_env, str) or not missing_env.strip():
+        if missing_env is not None and (
+            not isinstance(missing_env, str) or not missing_env.strip()
+        ):
             raise ValueError(
                 f"{field_prefix}.missing_env_var must be a non-empty string when provided"
             )
-        return OrchestratorSkipWhen(missing_env_var=missing_env.strip())
+        raw_missing_env_vars = raw.get("missing_env_vars")
+        if raw_missing_env_vars is None:
+            missing_env_vars: tuple[str, ...] = ()
+        else:
+            if not isinstance(raw_missing_env_vars, list) or not raw_missing_env_vars:
+                raise ValueError(
+                    f"{field_prefix}.missing_env_vars must be a non-empty list when provided"
+                )
+            normalized_env_vars: list[str] = []
+            for index, env_name in enumerate(raw_missing_env_vars):
+                if not isinstance(env_name, str) or not env_name.strip():
+                    raise ValueError(
+                        f"{field_prefix}.missing_env_vars[{index}] must be a non-empty string"
+                    )
+                normalized_env_vars.append(env_name.strip())
+            missing_env_vars = tuple(normalized_env_vars)
+        normalized_missing_env = None
+        if missing_env is not None:
+            normalized_missing_env = missing_env.strip()
+        return OrchestratorSkipWhen(
+            missing_env_var=normalized_missing_env,
+            missing_env_vars=missing_env_vars,
+        )
 
     @classmethod
     def _parse_orchestrator_task_params(
@@ -1789,6 +1811,7 @@ class OrchestratorSkipWhen:
     """Optional guard parsed from orchestrator YAML ``skip_when``."""
 
     missing_env_var: Optional[str] = None
+    missing_env_vars: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

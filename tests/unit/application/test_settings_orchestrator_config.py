@@ -68,6 +68,35 @@ class TestOrchestratorConfigParsing(unittest.TestCase):
         assert config.tasks[0].skip_when is not None
         self.assertEqual(config.tasks[0].skip_when.missing_env_var, "GUARDIAN_API_KEY")
 
+    def test_parse_skip_when_missing_env_vars(self):
+        """_parse_orchestrator_task_spec: parses missing_env_vars guard."""
+        raw = {
+            "tasks": [
+                {
+                    "id": "persist",
+                    "kind": "briefing_persistence",
+                    "skip_when": {
+                        "missing_env_vars": [
+                            "SUPABASE_URL",
+                            "SUPABASE_SERVICE_ROLE_KEY",
+                            "SUPABASE_POSTGRES_URL",
+                        ]
+                    },
+                }
+            ]
+        }
+        config = Settings._parse_orchestrator_config_mapping(raw)  # pylint: disable=protected-access
+        self.assertIsNotNone(config.tasks[0].skip_when)
+        assert config.tasks[0].skip_when is not None
+        self.assertEqual(
+            config.tasks[0].skip_when.missing_env_vars,
+            (
+                "SUPABASE_URL",
+                "SUPABASE_SERVICE_ROLE_KEY",
+                "SUPABASE_POSTGRES_URL",
+            ),
+        )
+
     def test_parse_normalizer_day_validates_iso(self):
         """_parse_orchestrator_task_params: validates article_normalizer day."""
         raw = {

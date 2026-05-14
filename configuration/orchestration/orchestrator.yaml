@@ -22,10 +22,15 @@ tasks:
   - id: vector_sync
     kind: vector_sync
     skip_when:
-      missing_env_var: SUPABASE_SERVICE_ROLE_KEY
+      missing_env_vars:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
     params:
       profile: default
   - id: briefing_persistence
     kind: briefing_persistence
     skip_when:
-      missing_env_var: SUPABASE_SERVICE_ROLE_KEY
+      missing_env_vars:
+        - SUPABASE_URL
+        - SUPABASE_SERVICE_ROLE_KEY
+        - SUPABASE_POSTGRES_URL
