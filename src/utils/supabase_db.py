@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Mapping, Optional
-from urllib.parse import quote_plus, urlparse
+
 
 import psycopg
 from psycopg import sql
@@ -14,54 +14,28 @@ from src.config.settings import Settings
 from src.utils.pg_identifiers import validate_pg_identifier
 
 
-def parse_supabase_project_ref(supabase_api_url: str) -> str:
-    """Extract the Supabase project ref from an API base URL.
-
-    Expects a host shaped like ``<project_ref>.supabase.co`` (optionally with port).
-
-    Raises:
-        ValueError: When the URL does not match the expected Supabase host pattern.
-    """
-    parsed = urlparse(supabase_api_url.strip())
-    host = (parsed.hostname or "").strip().lower()
-    suffix = ".supabase.co"
-    if not host.endswith(suffix):
-        raise ValueError(
-            "SUPABASE_URL hostname must end with .supabase.co (e.g. https://<ref>.supabase.co)",
-        )
-    ref = host[: -len(suffix)]
-    if not ref or "." in ref:
-        raise ValueError(
-            "SUPABASE_URL must use host <project_ref>.supabase.co with a single project ref label",
-        )
-    return ref
+# Deriving a host from SUPABASE_URL (db.<ref>.supabase.co) was intentionally
+# removed to avoid CI DNS/IPv6 reachability problems and unused helper code.
 
 
 def postgres_conninfo_from_supabase_credentials(*, load_dotenv: bool = True) -> str:
-    """Resolve a libpq connection URI for direct Postgres access (DDL on Supabase).
+    """Return Postgres libpq URI from SUPABASE_POSTGRES_URL.
 
-    If ``SUPABASE_POSTGRES_URL`` or ``DATABASE_URL`` is set (non-empty), returns that
-    string unchanged—use the Dashboard **Database** URI when ``db.<ref>.supabase.co``
-    does not resolve or auth fails.
-
-    Otherwise builds ``postgresql://postgres:...@db.<ref>.supabase.co:5432/postgres``
-    from :meth:`Settings.load_supabase_credentials` (``SUPABASE_URL`` +
-    ``SUPABASE_SERVICE_ROLE_KEY``); the service role JWT is URL-encoded as the
-    password and ``sslmode=require`` is appended.
-
-    If your project rejects JWT-as-password for the ``postgres`` user, set one of the
-    env URIs above from the dashboard, or set ``ensure_table: false`` in YAML and
-    apply DDL manually.
+    This function reads the explicit ``SUPABASE_POSTGRES_URL`` value via
+    :meth:`Settings.load_optional_postgres_conninfo` and returns it. Automatic
+    construction from ``SUPABASE_URL`` has been removed to avoid DNS/IPv6
+    connectivity issues in CI.
     """
     optional = Settings.load_optional_postgres_conninfo(load_dotenv=load_dotenv)
     if optional:
         return optional
-    api_url, service_key = Settings.load_supabase_credentials(load_dotenv=load_dotenv)
-    ref = parse_supabase_project_ref(api_url)
-    password = quote_plus(service_key)
-    return (
-        f"postgresql://postgres:{password}@db.{ref}.supabase.co:5432/postgres"
-        "?sslmode=require"
+    raise RuntimeError(
+        (
+            "SUPABASE_POSTGRES_URL is not set. For DDL operations set it to the "
+            "Supabase Dashboard 'Connection string' (pooler host, e.g. "
+            "aws-*-pooler.supabase.com:6543). "
+            "Automatic construction from SUPABASE_URL is disabled to avoid CI DNS/IPv6 issues."
+        )
     )
 
 
@@ -89,8 +63,8 @@ def ensure_briefing_persistence_table(
         schema_name: Schema for the table (validated identifier).
         table_name: Table name (validated identifier).
         postgres_conninfo: Optional libpq URI; when omitted, resolved via
-            :func:`postgres_conninfo_from_supabase_credentials` (optional env URI, else
-            derived from ``SUPABASE_URL`` + service role).
+            :func:`postgres_conninfo_from_supabase_credentials` (requires
+            ``SUPABASE_POSTGRES_URL`` to be set).
     """
     conninfo = postgres_conninfo or postgres_conninfo_from_supabase_credentials()
     schema_sql = validate_pg_identifier(schema_name, field_name="schema_name")
@@ -126,13 +100,20 @@ def ensure_briefing_persistence_table(
         err = str(exc)
         low = err.lower()
         print(f"OperationalError during table creation: {exc}")
-        # Common DNS resolution failures for Supabase managed DB use hostnames
-        # like db.<project_ref>.supabase.co. When these fail to resolve, surface
-        # a clearer RuntimeError hinting at using SUPABASE_POSTGRES_URL or
-        # DATABASE_URL instead of the derived host.
-        if "failed to resolve host 'db." in low or "could not translate host name 'db." in low or "name or service not known" in low or "temporary failure in name resolution" in low:
+        # Surface a clearer runtime hint about setting the explicit pooler URI
+        # when connectivity fails.
+        if (
+            "failed to resolve host 'db." in low
+            or "could not translate host name 'db." in low
+            or "name or service not known" in low
+            or "temporary failure in name resolution" in low
+        ):
             raise RuntimeError(
-                "Unable to resolve Supabase DB host. If running in CI or a network-restricted environment, set SUPABASE_POSTGRES_URL or DATABASE_URL to a reachable Postgres URI."
+                (
+                    "Unable to resolve Supabase DB host. If running in CI or a network-"
+                    "restricted environment, set SUPABASE_POSTGRES_URL to a reachable Postgres "
+                    "URI from the Supabase Dashboard."
+                )
             ) from exc
         raise
 
