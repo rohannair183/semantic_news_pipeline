@@ -260,3 +260,43 @@ class TestFetchLatestBriefingGeneratedAt(unittest.TestCase):
         query_chain.select.assert_called_once_with("generated_at")
         select_chain.order.assert_called_once_with("generated_at", desc=True)
         order_chain.limit.assert_called_once_with(1)
+
+    def test_returns_none_when_no_rows(self) -> None:
+        """fetch_latest_briefing_generated_at: returns None when no rows are found."""
+        execute_ret = MagicMock(data=[])
+        query_chain = MagicMock()
+        select_chain = query_chain.select.return_value
+        order_chain = select_chain.order.return_value
+        limit_chain = order_chain.limit.return_value
+        limit_chain.execute.return_value = execute_ret
+        table_chain = MagicMock()
+        table_chain.table.return_value = query_chain
+        client = MagicMock()
+        client.schema.return_value = table_chain
+
+        value = fetch_latest_briefing_generated_at(
+            client,
+            "public",
+            "news_briefings",
+        )
+        self.assertIsNone(value)
+
+    def test_returns_none_when_first_row_not_dict(self) -> None:
+        """fetch_latest_briefing_generated_at: returns None when first row is unexpected type."""
+        execute_ret = MagicMock(data=["not-a-dict"])
+        query_chain = MagicMock()
+        select_chain = query_chain.select.return_value
+        order_chain = select_chain.order.return_value
+        limit_chain = order_chain.limit.return_value
+        limit_chain.execute.return_value = execute_ret
+        table_chain = MagicMock()
+        table_chain.table.return_value = query_chain
+        client = MagicMock()
+        client.schema.return_value = table_chain
+
+        value = fetch_latest_briefing_generated_at(
+            client,
+            "public",
+            "news_briefings",
+        )
+        self.assertIsNone(value)
