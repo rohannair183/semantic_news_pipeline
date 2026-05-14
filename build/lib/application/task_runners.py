@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional
 from src.chunking.chunker import Chunker
 from src.config.settings import OrchestratorTaskSpec
 from src.embeddings.embedder import Embedder
+from src.process.briefing_persistence import BriefingPersistenceRunner
 from src.enums.orchestrator_task_kind import OrchestratorTaskKind
 from src.vector_sync.bucket_sync import VectorBucketSync
 from src.enums.orchestrator_normalizer_day_token import OrchestratorNormalizerDayToken
@@ -86,6 +87,15 @@ def _run_vector_sync(
     return sync_client.sync_profile_to_bucket(profile=spec.params.profile)
 
 
+def _run_briefing_persistence(
+    _spec: OrchestratorTaskSpec,
+    configuration_root: Optional[Path],
+    _timer: Timer,
+) -> Any:
+    runner = BriefingPersistenceRunner(configuration_root=configuration_root)
+    return runner.run()
+
+
 _DEFAULT_RUNNERS: Dict[OrchestratorTaskKind, OrchestratorRunner] = {
     OrchestratorTaskKind.ARTICLE_INGESTOR: _run_article_ingestor,
     OrchestratorTaskKind.ARTICLE_NORMALIZER: _run_article_normalizer,
@@ -93,6 +103,7 @@ _DEFAULT_RUNNERS: Dict[OrchestratorTaskKind, OrchestratorRunner] = {
     OrchestratorTaskKind.CHUNKING: _run_chunking,
     OrchestratorTaskKind.EMBEDDINGS: _run_embeddings,
     OrchestratorTaskKind.VECTOR_SYNC: _run_vector_sync,
+    OrchestratorTaskKind.BRIEFING_PERSISTENCE: _run_briefing_persistence,
 }
 
 

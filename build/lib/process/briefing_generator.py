@@ -161,6 +161,7 @@ class BriefingGenerator:
 
     def _generate_with_gemini(self, prompt: str) -> str:
         client = genai.Client(api_key=self._api_key)
+
         response = client.models.generate_content(
             model=self._config.model,
             contents=prompt,

@@ -12,3 +12,4 @@ class OrchestratorTaskKind(BaseEnum):
     CHUNKING = "chunking"
     EMBEDDINGS = "embeddings"
     VECTOR_SYNC = "vector_sync"
+    BRIEFING_PERSISTENCE = "briefing_persistence"
