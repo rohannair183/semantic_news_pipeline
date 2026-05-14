@@ -89,6 +89,7 @@ class TestOrchestratorConfigValidationErrors(unittest.TestCase):
         self.assertIsNotNone(guard)
         assert guard is not None
         self.assertIsNone(guard.missing_env_var)
+        self.assertEqual(guard.missing_env_vars, ())
 
     def test_skip_when_bad_missing_env_shape(self):
         """_parse_orchestrator_skip_when: validates ``missing_env_var`` strings."""
@@ -103,6 +104,34 @@ class TestOrchestratorConfigValidationErrors(unittest.TestCase):
         with self.assertRaises(ValueError) as raised:
             Settings._parse_orchestrator_config_mapping(raw)  # pylint: disable=protected-access
         self.assertIn("missing_env_var", str(raised.exception))
+
+    def test_skip_when_bad_missing_env_vars_shape(self):
+        """_parse_orchestrator_skip_when: validates ``missing_env_vars`` lists."""
+        raw = {
+            "tasks": [
+                {
+                    "kind": "chunking",
+                    "skip_when": {"missing_env_vars": "SUPABASE_URL"},
+                },
+            ],
+        }
+        with self.assertRaises(ValueError) as raised:
+            Settings._parse_orchestrator_config_mapping(raw)  # pylint: disable=protected-access
+        self.assertIn("missing_env_vars", str(raised.exception))
+
+    def test_skip_when_bad_missing_env_vars_item(self):
+        """_parse_orchestrator_skip_when: validates ``missing_env_vars`` entries."""
+        raw = {
+            "tasks": [
+                {
+                    "kind": "chunking",
+                    "skip_when": {"missing_env_vars": ["SUPABASE_URL", " "]},
+                },
+            ],
+        }
+        with self.assertRaises(ValueError) as raised:
+            Settings._parse_orchestrator_config_mapping(raw)  # pylint: disable=protected-access
+        self.assertIn("missing_env_vars", str(raised.exception))
 
     def test_params_must_map(self):
         """_parse_orchestrator_task_params: rejects stray param container types."""
