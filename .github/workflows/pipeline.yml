@@ -69,7 +69,7 @@ jobs:
           from pathlib import Path
 
           def format_env_line(name: str, value: str) -> str:
-              if any(ch in value for ch in '\n\r"\'):
+              if any(ch in value for ch in "\n\r\"'"):
                   escaped = value.replace("\\", "\\\\").replace('"', '\\"')
                   return f'{name}="{escaped}"'
               return f"{name}={value}"
